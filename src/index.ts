@@ -8,11 +8,6 @@ console.log("==================================================");
 
 startServer(PORT);
 
-console.log(`\n✨ Studio is live and ready!`);
-console.log(`🌐 Open in your browser: http://localhost:${PORT}`);
-console.log(`\n💡 Features:`);
-console.log(`   - 🎙️ 25+ Reciters (Iraqi Reciters 🇮🇶 prioritized)`);
-console.log(`   - 📱 9:16 Interactive Canvas Editor`);
-console.log(`   - ⏳ Concurrency-Controlled Render Queue`);
-console.log(`   - ⚡ Batch Generator for Full Surahs`);
-console.log(`   - 📁 Complete Video History with Direct MP4 Downloads\n`);
+console.log(`\n✨ Quran Reels API Backend is live and ready on port ${PORT}!`);
+console.log(`🌐 API Base URL: http://localhost:${PORT}`);
+console.log(`💻 Next.js Client URL: http://localhost:3001\n`);

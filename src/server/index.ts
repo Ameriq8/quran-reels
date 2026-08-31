@@ -403,22 +403,27 @@ export function startServer(port: number = 3000) {
 					return new Response("Not found", { status: 404 });
 				}
 
-				// Serve public web frontend files
-				let publicPath = join(resolve("public"), pathname === "/" ? "index.html" : pathname.slice(1));
-				if (!existsSync(publicPath)) {
-					publicPath = join(resolve("public"), "index.html"); // SPA fallback
-				}
-
-				if (existsSync(publicPath)) {
-					const ext = extname(publicPath).toLowerCase();
-					const contentType = mimeTypes[ext] || "text/html; charset=utf-8";
-					const file = Bun.file(publicPath);
-					return new Response(file, {
-						headers: { "Content-Type": contentType },
+				// Root API health check
+				if (pathname === "/" && method === "GET") {
+					return Response.json({
+						status: "ok",
+						name: "Quran Reels Studio API Server",
+						version: "2.0.0",
+						endpoints: {
+							stats: "/api/stats",
+							surahs: "/api/surahs",
+							verses: "/api/verses",
+							reciters: "/api/reciters",
+							backgrounds: "/api/backgrounds",
+							templates: "/api/templates",
+							reelsQueue: "/api/reels/queue",
+							reelsHistory: "/api/reels/history",
+							settings: "/api/settings",
+						},
 					});
 				}
 
-				return new Response("Not found", { status: 404 });
+				return Response.json({ error: "Endpoint not found" }, { status: 404 });
 			} catch (err: any) {
 				console.error(`HTTP Error [${method} ${pathname}]:`, err);
 				return Response.json({ error: err.message || "Internal server error" }, { status: 500 });
