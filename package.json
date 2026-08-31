@@ -1,0 +1,40 @@
+{
+	"name": "quran-reels",
+	"version": "2.0.0",
+	"description": "Create high-quality Quran shorts & reels videos as MP4 using Bun, TypeScript, and FFmpeg",
+	"main": "src/index.ts",
+	"type": "module",
+	"scripts": {
+		"start": "bun run src/index.ts",
+		"dev": "bun --watch src/index.ts",
+		"dev:client": "cd client && bun run dev --port 3001",
+		"build:client": "cd client && bun run build",
+		"start:client": "cd client && bun run start --port 3001",
+		"build": "tsc"
+	},
+	"keywords": [
+		"quran",
+		"shorts",
+		"reels",
+		"tiktok",
+		"video-generator",
+		"bun",
+		"typescript"
+	],
+	"author": "",
+	"license": "MIT",
+	"dependencies": {
+		"arabic-persian-reshaper": "^1.0.1",
+		"axios": "^1.8.1",
+		"dotenv": "^16.4.7",
+		"lucide-react": "^1.35.0",
+		"next": "^16.3.3",
+		"react": "^19.2.8",
+		"react-dom": "^19.2.8"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.0",
+		"@types/node": "^22.13.5",
+		"typescript": "^7.0.2"
+	}
+}

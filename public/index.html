@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>استوديو ريلز القرآن • Quran Reels Studio</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Readex+Pro:wght@300;400;500;600;700&family=Scheherazade+New:wght@400;700&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+	<!-- App Container -->
+	<div class="app-layout">
+		<!-- Sidebar Navigation -->
+		<aside class="sidebar">
+			<div class="brand">
+				<div class="brand-icon">🕋</div>
+				<div class="brand-text">
+					<h1>استوديو ريلز القرآن</h1>
+					<span>Quran Reels Studio</span>
+				</div>
+			</div>
+
+			<nav class="nav-menu">
+				<button class="nav-item active" data-view="dashboard">
+					<span class="nav-icon">📊</span>
+					<span class="nav-label">الرئيسية</span>
+				</button>
+				<button class="nav-item" data-view="create">
+					<span class="nav-icon">🎬</span>
+					<span class="nav-label">إنشاء ريل</span>
+					<span class="badge new-badge">جديد</span>
+				</button>
+				<button class="nav-item" data-view="reels">
+					<span class="nav-icon">📁</span>
+					<span class="nav-label">الريلز المكتملة</span>
+					<span class="badge count-badge" id="nav-reels-count">0</span>
+				</button>
+				<button class="nav-item" data-view="reciters">
+					<span class="nav-icon">🎙️</span>
+					<span class="nav-label">القراء (العراق 🇮🇶 والعالم)</span>
+				</button>
+				<button class="nav-item" data-view="backgrounds">
+					<span class="nav-icon">🖼️</span>
+					<span class="nav-label">مكتبة الخلفيات</span>
+				</button>
+				<button class="nav-item" data-view="templates">
+					<span class="nav-icon">🎨</span>
+					<span class="nav-label">القوالب والتصميم</span>
+				</button>
+				<button class="nav-item" data-view="batch">
+					<span class="nav-icon">⚡</span>
+					<span class="nav-label">الإنشاء المتعدد (Batch)</span>
+				</button>
+				<button class="nav-item" data-view="settings">
+					<span class="nav-icon">⚙️</span>
+					<span class="nav-label">الإعدادات والتخزين</span>
+				</button>
+			</nav>
+
+			<div class="sidebar-footer">
+				<div class="quick-stats-mini">
+					<span>حالة النظام:</span>
+					<span class="status-indicator online">● متصل</span>
+				</div>
+			</div>
+		</aside>
+
+		<!-- Main Content Area -->
+		<main class="main-content">
+			<!-- Top Header -->
+			<header class="top-header">
+				<div class="header-left">
+					<button class="mobile-menu-toggle" id="mobile-menu-btn">☰</button>
+					<h2 id="page-title">لوحة التحكم الرئيسية</h2>
+				</div>
+				<div class="header-actions">
+					<button class="btn btn-secondary" id="random-ayah-btn">
+						🎲 آية عشوائية
+					</button>
+					<button class="btn btn-primary" id="header-create-btn">
+						+ إنشاء ريل جديد
+					</button>
+				</div>
+			</header>
+
+			<!-- Dynamic View Container -->
+			<div class="views-wrapper">
+				
+				<!-- ==================== VIEW 1: DASHBOARD ==================== -->
+				<section class="view active" id="view-dashboard">
+					<!-- Statistics Cards -->
+					<div class="stats-grid">
+						<div class="stat-card">
+							<div class="stat-icon gold">🎬</div>
+							<div class="stat-info">
+								<h3 id="stat-total-reels">0</h3>
+								<p>إجمالي الريلز المنتجة</p>
+							</div>
+						</div>
+						<div class="stat-card">
+							<div class="stat-icon emerald">✓</div>
+							<div class="stat-info">
+								<h3 id="stat-completed-reels">0</h3>
+								<p>فيديوهات جاهزة</p>
+							</div>
+						</div>
+						<div class="stat-card">
+							<div class="stat-icon purple">⏱️</div>
+							<div class="stat-info">
+								<h3 id="stat-total-duration">0د</h3>
+								<p>إجمالي مدة المحتوى</p>
+							</div>
+						</div>
+						<div class="stat-card">
+							<div class="stat-icon blue">💾</div>
+							<div class="stat-info">
+								<h3 id="stat-storage-used">0 MB</h3>
+								<p>مساحة التخزين المستخدمة</p>
+							</div>
+						</div>
+					</div>
+
+					<!-- Queue & Quick Create Row -->
+					<div class="dashboard-split">
+						<!-- Quick Create Widget -->
+						<div class="card quick-create-card">
+							<div class="card-header">
+								<h3>⚡ إنشاء ريل سريع</h3>
+								<span class="card-hint">بدون خطوات معقدة</span>
+							</div>
+							<div class="quick-form">
+								<div class="form-group">
+									<label>السورة</label>
+									<select id="quick-surah-select" class="form-control"></select>
+								</div>
+								<div class="form-row">
+									<div class="form-group">
+										<label>من الآية</label>
+										<input type="number" id="quick-verse-start" class="form-control" value="1" min="1">
+									</div>
+									<div class="form-group">
+										<label>عدد الآيات</label>
+										<input type="number" id="quick-verse-count" class="form-control" value="3" min="1" max="15">
+									</div>
+								</div>
+								<div class="form-group">
+									<label>القارئ</label>
+									<select id="quick-reciter-select" class="form-control"></select>
+								</div>
+								<div class="form-group">
+									<label>القالب</label>
+									<select id="quick-template-select" class="form-control">
+										<option value="mushaf-focus">تركيز المصحف (أخضر وذهبي)</option>
+										<option value="classic-dark">كلاسيكي داكن (فخم)</option>
+										<option value="gold-luxury">ذهبي ملكي</option>
+										<option value="nature-ambient">طبيعي هادئ</option>
+										<option value="cinematic">سينمائي واسع</option>
+										<option value="minimal">بسيط ومختصر</option>
+									</select>
+								</div>
+								<button class="btn btn-primary btn-block" id="quick-generate-btn">
+									🚀 بدء إنشاء الفيديو الآن
+								</button>
+							</div>
+						</div>
+
+						<!-- Active Queue & Recent List -->
+						<div class="card queue-card">
+							<div class="card-header">
+								<h3>⏳ طابور الإنتاج المباشر</h3>
+								<span class="badge" id="queue-status-badge">خامل</span>
+							</div>
+							<div class="queue-list" id="queue-jobs-container">
+								<div class="empty-state">
+									<p>لا توجد عمليات رندر قيد الانتظار حالياً.</p>
+								</div>
+							</div>
+
+							<div class="card-header border-top">
+								<h3>✨ أحدث الريلز المنتجة</h3>
+								<button class="btn-link" id="goto-reels-btn">عرض الكل ←</button>
+							</div>
+							<div class="recent-reels-grid" id="dashboard-recent-reels">
+								<!-- Populated dynamically -->
+							</div>
+						</div>
+					</div>
+				</section>
+
+				<!-- ==================== VIEW 2: CREATE REEL STUDIO ==================== -->
+				<section class="view" id="view-create">
+					<div class="studio-layout">
+						<!-- Studio Controls (Left / Right in RTL) -->
+						<div class="studio-controls">
+							
+							<!-- Step 1: Surah & Ayahs -->
+							<div class="studio-section card">
+								<div class="section-title">
+									<span class="step-num">1</span>
+									<h3>السورة والآيات القرآنية</h3>
+								</div>
+								<div class="form-group">
+									<label>اختر السورة</label>
+									<select id="studio-surah-select" class="form-control select-lg"></select>
+								</div>
+								<div class="form-row">
+									<div class="form-group">
+										<label>من الآية</label>
+										<input type="number" id="studio-verse-start" class="form-control" value="1" min="1">
+									</div>
+									<div class="form-group">
+										<label>إلى الآية</label>
+										<input type="number" id="studio-verse-end" class="form-control" value="5" min="1">
+									</div>
+								</div>
+								<div class="quick-verse-presets">
+									<button class="preset-chip" data-count="1">آية واحدة</button>
+									<button class="preset-chip active" data-count="3">3 آيات</button>
+									<button class="preset-chip" data-count="5">5 آيات</button>
+									<button class="preset-chip" data-count="all">السورة كاملة</button>
+								</div>
+							</div>
+
+							<!-- Step 2: Reciter Selection -->
+							<div class="studio-section card">
+								<div class="section-title">
+									<span class="step-num">2</span>
+									<h3>القارئ والتلاوة</h3>
+								</div>
+								<div class="selected-reciter-card" id="selected-reciter-box">
+									<div class="reciter-avatar" id="sel-reciter-avatar">🇮🇶</div>
+									<div class="reciter-details">
+										<h4 id="sel-reciter-name">رعد محمد الكردي</h4>
+										<p id="sel-reciter-info">العراق 🇮🇶 • حفص عن عاصم • تلاوة خاشعة</p>
+									</div>
+									<div class="reciter-actions">
+										<button class="btn btn-sm btn-secondary" id="preview-audio-btn">▶ استماع</button>
+										<button class="btn btn-sm btn-outline" id="open-reciter-modal-btn">تغيير ↻</button>
+									</div>
+								</div>
+							</div>
+
+							<!-- Step 3: Background & Style -->
+							<div class="studio-section card">
+								<div class="section-title">
+									<span class="step-num">3</span>
+									<h3>الخلفية والقالب</h3>
+								</div>
+								<div class="form-group">
+									<label>القالب والتصميم</label>
+									<div class="templates-grid-mini" id="template-options-container">
+										<!-- Populated dynamically -->
+									</div>
+								</div>
+
+								<div class="form-group">
+									<div class="bg-header-row">
+										<label>الخلفية</label>
+										<button class="btn-link" id="open-bg-modal-btn">تصفح المكتبة الكاملة (50+) ←</button>
+									</div>
+									<div class="bg-carousel-mini" id="bg-mini-carousel">
+										<!-- Mini backgrounds -->
+									</div>
+								</div>
+							</div>
+
+							<!-- Step 4: Subtitles & Header Options -->
+							<div class="studio-section card">
+								<div class="section-title">
+									<span class="step-num">4</span>
+									<h3>النصوص ومزامنة المقاطع</h3>
+								</div>
+
+								<div class="form-group" style="margin-bottom: 16px;">
+									<label>مزامنة النص القرآني (Text Synchronization)</label>
+									<select id="studio-sync-mode" class="form-control">
+										<option value="auto" selected>✨ تلقائي (تقسيم المقاطع المتناسقة ذكياً - مستحسن)</option>
+										<option value="phrase">⚡ مقاطع متزامنة (Phrase-Level Sync)</option>
+										<option value="whole">📜 الآية كاملة (Whole Ayah)</option>
+									</select>
+								</div>
+
+								<button type="button" class="btn btn-sm btn-outline btn-block" id="btn-preview-segments" style="margin-bottom: 16px; border-style: dashed;">
+									🔍 معاينة المقاطع المتزامنة والترجمة (<span id="segments-count-badge">حساب...</span>)
+								</button>
+
+								<div class="toggle-group">
+									<label class="switch">
+										<input type="checkbox" id="toggle-translation" checked>
+										<span class="slider"></span>
+									</label>
+									<span>إظهار الترجمة الإنجليزية (English Subtitles)</span>
+								</div>
+								<div class="toggle-group">
+									<label class="switch">
+										<input type="checkbox" id="toggle-surah-header" checked>
+										<span class="slider"></span>
+									</label>
+									<span>إظهار شريط السورة بالأعلى</span>
+								</div>
+								<div class="toggle-group">
+									<label class="switch">
+										<input type="checkbox" id="toggle-reciter-tag" checked>
+										<span class="slider"></span>
+									</label>
+									<span>إظهار اسم القارئ</span>
+								</div>
+							</div>
+
+							<!-- Step 5: Render Action -->
+							<div class="studio-action-card card">
+								<div class="duration-estimate">
+									<span>⏱️ المدة التقديرية للريل:</span>
+									<strong id="estimated-duration-text">جاري الحساب...</strong>
+								</div>
+								<button class="btn btn-primary btn-lg btn-block" id="studio-render-btn">
+									🚀 بدء إنشاء الريل (1080x1920 MP4)
+								</button>
+								<div class="render-progress-box hidden" id="studio-progress-box">
+									<div class="progress-bar-wrap">
+										<div class="progress-bar-fill" id="studio-progress-fill" style="width: 0%;"></div>
+									</div>
+									<div class="progress-info">
+										<span id="studio-progress-text">جاري تجهيز الآيات...</span>
+										<strong id="studio-progress-percent">0%</strong>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Studio Live 9:16 Canvas Preview (Right / Left in RTL) -->
+						<div class="studio-preview-wrapper">
+							<div class="preview-container-sticky">
+								<div class="phone-frame">
+									<div class="phone-screen">
+										<!-- Canvas Preview Layer -->
+										<canvas id="reel-preview-canvas" width="1080" height="1920"></canvas>
+									</div>
+								</div>
+								<div class="preview-caption">
+									<span>معاينة حية لشكل الريل النهائي (9:16)</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				</section>
+
+				<!-- ==================== VIEW 3: REELS HISTORY ==================== -->
+				<section class="view" id="view-reels">
+					<div class="section-toolbar">
+						<div class="search-box">
+							<input type="text" id="history-search-input" class="form-control" placeholder="ابحث باسم السورة أو القارئ...">
+						</div>
+						<div class="toolbar-stats">
+							<span id="history-count-text">0 فيديو</span>
+						</div>
+					</div>
+					<div class="reels-grid" id="history-reels-container">
+						<!-- Populated dynamically -->
+					</div>
+				</section>
+
+				<!-- ==================== VIEW 4: RECITERS CATALOG ==================== -->
+				<section class="view" id="view-reciters">
+					<div class="reciters-header card">
+						<div class="reciters-search-row">
+							<div class="search-box">
+								<input type="text" id="reciters-search-input" class="form-control" placeholder="🔍 ابحث عن قارئ بالعربية أو الإنجليزية (مثال: رعد، المنشاوي، Alafasy)...">
+							</div>
+						</div>
+						<div class="tabs-nav" id="reciter-country-tabs">
+							<button class="tab-btn active" data-country="ALL">الكل</button>
+							<button class="tab-btn" data-country="IQ">🇮🇶 العراق</button>
+							<button class="tab-btn" data-country="SA">🇸🇦 السعودية والخليج</button>
+							<button class="tab-btn" data-country="EG">🇪🇬 مصر</button>
+							<button class="tab-btn" data-country="FAV">⭐ المفضلة</button>
+						</div>
+					</div>
+					<div class="reciters-grid" id="reciters-catalog-grid">
+						<!-- Populated dynamically -->
+					</div>
+				</section>
+
+				<!-- ==================== VIEW 5: BACKGROUNDS ==================== -->
+				<section class="view" id="view-backgrounds">
+					<div class="bg-gallery-header card">
+						<div class="bg-tabs-row" id="bg-category-tabs">
+							<button class="tab-btn active" data-cat="ALL">جميع الخلفيات (50+)</button>
+							<button class="tab-btn" data-cat="إسلامية ومساجد">🕌 إسلامية ومساجد</button>
+							<button class="tab-btn" data-cat="طبيعة وسماء">🌌 طبيعة وسماء</button>
+							<button class="tab-btn" data-cat="أشخاص وقراءة">📖 أشخاص وتلاوة</button>
+							<button class="tab-btn" data-cat="مصحف وتفاصيل">✨ تفاصيل المصحف</button>
+						</div>
+						<div class="upload-btn-wrap">
+							<input type="file" id="bg-upload-input" accept="image/*,video/mp4" style="display:none">
+							<button class="btn btn-secondary" onclick="document.getElementById('bg-upload-input').click()">
+								📤 رفع خلفية من جهازك
+							</button>
+						</div>
+					</div>
+					<div class="backgrounds-grid" id="backgrounds-gallery-grid">
+						<!-- Populated dynamically -->
+					</div>
+				</section>
+
+				<!-- ==================== VIEW 6: TEMPLATES ==================== -->
+				<section class="view" id="view-templates">
+					<div class="templates-full-grid" id="templates-full-container">
+						<!-- Populated dynamically -->
+					</div>
+				</section>
+
+				<!-- ==================== VIEW 7: BATCH GENERATOR ==================== -->
+				<section class="view" id="view-batch">
+					<div class="card batch-card">
+						<div class="card-header">
+							<h3>⚡ استوديو الإنشاء المتعدد (Batch Creation)</h3>
+							<p>أنشئ مجموعة ريلز كاملة لسورة محددة دفعة واحدة بضغطة زر</p>
+						</div>
+						<div class="batch-form">
+							<div class="form-group">
+								<label>اختر السورة المطلوب تجزئتها وإنتاجها</label>
+								<select id="batch-surah-select" class="form-control select-lg"></select>
+							</div>
+							<div class="form-group">
+								<label>طريقة التجزئة</label>
+								<div class="radio-cards">
+									<label class="radio-card active">
+										<input type="radio" name="batch-mode" value="by_ayah_count" checked>
+										<div class="radio-content">
+											<strong>كل 2 إلى 3 آيات في ريل مستقل</strong>
+											<span>مناسب للآيات المتوسطة مع التفسير</span>
+										</div>
+									</label>
+									<label class="radio-card">
+										<input type="radio" name="batch-mode" value="single_ayah">
+										<div class="radio-content">
+											<strong>كل آية في ريل منفصل</strong>
+											<span>مثالي للآيات الطويلة وسور المفصل</span>
+										</div>
+									</label>
+								</div>
+							</div>
+							<div class="form-row">
+								<div class="form-group">
+									<label>القارئ</label>
+									<select id="batch-reciter-select" class="form-control"></select>
+								</div>
+								<div class="form-group">
+									<label>القالب</label>
+									<select id="batch-template-select" class="form-control"></select>
+								</div>
+							</div>
+							<button class="btn btn-primary btn-lg btn-block" id="batch-generate-btn">
+								🚀 بدء توليد المجموعة بالكامل إلى طابور الرندر
+							</button>
+						</div>
+					</div>
+				</section>
+
+				<!-- ==================== VIEW 8: SETTINGS ==================== -->
+				<section class="view" id="view-settings">
+					<div class="settings-grid">
+						<!-- Storage & Cache Card -->
+						<div class="card">
+							<div class="card-header">
+								<h3>💾 مساحة التخزين والكاش</h3>
+							</div>
+							<div class="storage-details">
+								<div class="storage-item">
+									<span>كاش التلاوات الصوتية:</span>
+									<strong id="storage-audio-cache">0 MB</strong>
+								</div>
+								<div class="storage-item">
+									<span>الفيديوهات المنتجة:</span>
+									<strong id="storage-outputs">0 MB</strong>
+								</div>
+								<div class="storage-item">
+									<span>مكتبة الخلفيات:</span>
+									<strong id="storage-assets">0 MB</strong>
+								</div>
+								<div class="storage-item">
+									<span>الملفات المؤقتة:</span>
+									<strong id="storage-temp">0 MB</strong>
+								</div>
+							</div>
+							<div class="cache-actions">
+								<button class="btn btn-secondary" id="clean-temp-btn">🧹 تنظيف الملفات المؤقتة</button>
+								<button class="btn btn-outline" id="clean-audio-btn">🗑️ مسح كاش التلاوات</button>
+							</div>
+						</div>
+
+						<!-- Defaults Preferences -->
+						<div class="card">
+							<div class="card-header">
+								<h3>⚙️ التفضيلات الافتراضية</h3>
+							</div>
+							<div class="form-group">
+								<label>القارئ الافتراضي</label>
+								<select id="setting-default-reciter" class="form-control"></select>
+							</div>
+							<div class="form-group">
+								<label>القالب الافتراضي</label>
+								<select id="setting-default-template" class="form-control"></select>
+							</div>
+							<div class="toggle-group">
+								<label class="switch">
+									<input type="checkbox" id="setting-iraqi-first" checked>
+									<span class="slider"></span>
+								</label>
+								<span>إظهار القراء العراقيين 🇮🇶 في أول القائمة دائماً</span>
+							</div>
+							<button class="btn btn-primary" id="save-settings-btn">حفظ التغييرات</button>
+						</div>
+					</div>
+				</section>
+
+			</div>
+		</main>
+	</div>
+
+	<!-- ==================== MODALS & DRAWERS ==================== -->
+
+	<!-- Reciter Selector Modal -->
+	<div class="modal-backdrop hidden" id="reciter-modal">
+		<div class="modal-content modal-lg">
+			<div class="modal-header">
+				<h3>🎙️ اختيار القارئ (قراء العراق والعالم الإسلامي)</h3>
+				<button class="modal-close-btn" id="close-reciter-modal">&times;</button>
+			</div>
+			<div class="modal-body">
+				<div class="modal-search-row">
+					<input type="text" id="modal-reciter-search" class="form-control" placeholder="ابحث بالاسم (رعد الكردي، المنشاوي، Alafasy)...">
+				</div>
+				<div class="tabs-nav modal-tabs" id="modal-reciter-tabs">
+					<button class="tab-btn active" data-country="ALL">الكل</button>
+					<button class="tab-btn" data-country="IQ">🇮🇶 العراق</button>
+					<button class="tab-btn" data-country="SA">🇸🇦 الخليج</button>
+					<button class="tab-btn" data-country="EG">🇪🇬 مصر</button>
+					<button class="tab-btn" data-country="FAV">⭐ المفضلة</button>
+				</div>
+				<div class="reciters-modal-list" id="modal-reciters-container">
+					<!-- Populated dynamically -->
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Background Selector Modal -->
+	<div class="modal-backdrop hidden" id="bg-modal">
+		<div class="modal-content modal-lg">
+			<div class="modal-header">
+				<h3>🖼️ اختيار خلفية الريل (مكتبة الصور والفيديوهات)</h3>
+				<button class="modal-close-btn" id="close-bg-modal">&times;</button>
+			</div>
+			<div class="modal-body">
+				<div class="bg-modal-grid" id="modal-bg-container">
+					<!-- Populated dynamically -->
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Video Player Modal -->
+	<div class="modal-backdrop hidden" id="video-player-modal">
+		<div class="modal-content modal-player">
+			<div class="modal-header">
+				<h3 id="player-modal-title">مشاهدة الريل</h3>
+				<button class="modal-close-btn" id="close-player-modal">&times;</button>
+			</div>
+			<div class="modal-body player-body">
+				<div class="video-wrapper">
+					<video id="player-video-element" controls autoplay loop playsinline></video>
+				</div>
+				<div class="player-actions-panel">
+					<a href="#" id="player-download-btn" class="btn btn-primary btn-block" download>
+						⬇ تحميل الفيديو MP4 (1080x1920)
+					</a>
+					<button class="btn btn-secondary btn-block" id="copy-caption-btn">
+						📋 نسخ العنوان ووصف النشر والهاشتاقات
+					</button>
+					<div class="caption-preview-box">
+						<textarea id="caption-text-area" readonly rows="5"></textarea>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Phrase Segments Preview Modal -->
+	<div class="modal-backdrop hidden" id="segments-preview-modal">
+		<div class="modal-content modal-lg">
+			<div class="modal-header">
+				<h3>🔍 تفاصيل مقاطع التلاوة المتزامنة (Phrase-Level Quran Sync)</h3>
+				<button class="modal-close-btn" id="close-segments-modal">&times;</button>
+			</div>
+			<div class="modal-body">
+				<p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+					يتم تقسيم الآيات الطويلة والمتوسطة إلى مقاطع متناسقة تتبع صوت القارئ، مع ظهور رقم الآية في المقطع الأخير فقط والترجمة المطابقة.
+				</p>
+				<div class="segments-list-container" id="segments-preview-list">
+					<!-- Populated dynamically -->
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Global Audio Preview Player -->
+	<audio id="global-preview-audio" preload="none"></audio>
+
+	<!-- App Logic -->
+	<script src="/app.js"></script>
+</body>
+</html>

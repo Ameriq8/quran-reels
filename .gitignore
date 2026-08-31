@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+client/node_modules/
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+pnpm-lock.yaml
+
+# Next.js & Build outputs
+.next/
+client/.next/
+out/
+client/out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+
+# Application Caches & Temporary Processing
+cache/
+scratch/
+tmp/
+temp/
+editly-*
+
+# Generated Media & History Outputs
+output/
+
+# Environment & Credentials
+.env
+.env*.local
+*.pem
+*.key
+yt-auth/
+instagram_config.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# System & IDE files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json

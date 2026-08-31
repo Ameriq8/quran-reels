@@ -1,0 +1,11 @@
+{
+	"surah": 1,
+	"verse_start": 1,
+	"verse_count": 7,
+	"reciter_id": 7,
+	"translation_id": 131,
+	"show_translation": true,
+	"output_dir": "output",
+	"font_size": 62,
+	"translation_font_size": 34
+}
