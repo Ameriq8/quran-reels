@@ -40,7 +40,7 @@ Edit [`config.json`](file:///c:/Users/amerm/Desktop/quran-shorts-master/config.j
   "verse_start": 1,
   "verse_count": 7,
   "reciter_id": 7,
-  "translation_id": 131,
+  "translation_id": 85,
   "show_translation": true,
   "output_dir": "output",
   "font_size": 62,
@@ -65,7 +65,7 @@ Your rendered MP4 short will be saved to the `output/` directory (e.g. `output/S
 | `verse_start` | `number` | Starting verse number (1-indexed) |
 | `verse_count` | `number` | Number of verses to include in the video |
 | `reciter_id` | `number` | Reciter ID (`7` = Mishary Alafasy, `2` = Abdul Basit Murattal, `1` = Abdul Basit Mujawwad, `4` = Abu Bakr Al-Shatri, `6` = Mahmoud Khalil Al-Husary) |
-| `translation_id` | `number` | Translation ID (`131` = Dr. Mustafa Khattab / Clear Quran, `20` = Saheeh International) |
+| `translation_id` | `number` | Quran.com translation resource ID (`85` is the default) |
 | `show_translation`| `boolean`| Whether to overlay translation subtitles |
 | `background` | `string` | *(Optional)* Specify a filename in `assets/`, or leave empty for a random background |
 | `output_dir` | `string` | Folder where generated `.mp4` videos are saved (`"output"`) |

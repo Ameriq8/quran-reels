@@ -174,7 +174,7 @@ export default function DashboardPage() {
 				</div>
 
 				{/* 2. Main Dashboard Split (Queue & Quick Generator) */}
-				<div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: "28px", marginBottom: "36px" }}>
+				<div className="dashboard-main-grid">
 					{/* Live Render Queue */}
 					<div className="glass-card">
 						<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>

@@ -16,6 +16,7 @@ export interface IRenderJobOptions {
 	reciterId: string;
 	templateId?: string;
 	background?: string;
+	backgroundStartSeconds?: number;
 	showTranslation?: boolean;
 	translationId?: number;
 	showSurahArabic?: boolean;
@@ -56,6 +57,26 @@ export interface IRenderJob {
 	createdAt: string;
 	completedAt?: string;
 	segmentsCount?: number;
+}
+
+export function getSurahAudioWindow(
+	allVerses: IVerse[],
+	verseStart: number,
+	verseCount: number,
+	totalDuration: number
+) {
+	// ponytail: Surah-level sources have no ayah timestamps; proportional Quran.com timings are the ceiling until a reciter-specific timing API is available.
+	const weights = allVerses.map((verse) => verse.audio?.segments?.at(-1)?.[3] || Math.max(1, verse.text_uthmani.length));
+	const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+	const startIndex = Math.max(0, verseStart - 1);
+	const selectedWeights = weights.slice(startIndex, startIndex + Math.max(1, verseCount));
+	const secondsPerWeight = totalDuration / totalWeight;
+
+	return {
+		startSeconds: weights.slice(0, startIndex).reduce((sum, weight) => sum + weight, 0) * secondsPerWeight,
+		durationSeconds: selectedWeights.reduce((sum, weight) => sum + weight, 0) * secondsPerWeight,
+		verseDurations: selectedWeights.map((weight) => weight * secondsPerWeight),
+	};
 }
 
 export class RenderQueue {
@@ -208,7 +229,7 @@ export class RenderQueue {
 			opt.surah,
 			opt.verseStart,
 			opt.verseCount,
-			opt.translationId || 131
+			opt.translationId || 85
 		);
 
 		if (verses.length === 0) {
@@ -285,15 +306,16 @@ export class RenderQueue {
 				opt.surah
 			);
 			const totalSurahDuration = await this.renderer.getAudioDuration(surahAudioPath);
-
-			await fs.copyFile(surahAudioPath, tempAudioPath);
-
-			const totalChars = verses.reduce((sum, v) => sum + v.text_uthmani.length, 0) || 1;
+			const allVerses = opt.verseStart === 1 && verses.length === chapter.verses_count
+				? verses
+				: await this.api.getVerses(opt.surah, 1, chapter.verses_count, opt.translationId || 85);
+			const audioWindow = getSurahAudioWindow(allVerses, opt.verseStart, opt.verseCount, totalSurahDuration);
+			await this.renderer.extractAudioSegment(surahAudioPath, tempAudioPath, audioWindow.startSeconds, audioWindow.durationSeconds);
 			let currentTimeline = 0;
 
-			for (const verse of verses) {
-				const fraction = verse.text_uthmani.length / totalChars;
-				const verseDuration = totalSurahDuration * fraction;
+			for (let index = 0; index < verses.length; index++) {
+				const verse = verses[index];
+				const verseDuration = audioWindow.verseDurations[index];
 
 				const rawWords = (verse.words || []) as any[];
 				const segments = this.segmenter.segmentAyah(
@@ -313,7 +335,7 @@ export class RenderQueue {
 
 				verseRenderList.push({
 					verse,
-					audioPath: surahAudioPath,
+					audioPath: tempAudioPath,
 					duration: verseDuration,
 					startTime: currentTimeline,
 					endTime: currentTimeline + verseDuration,
@@ -374,6 +396,7 @@ export class RenderQueue {
 
 		await this.renderer.renderVideo({
 			backgroundImage,
+			backgroundStartSeconds: opt.backgroundStartSeconds,
 			combinedAudioPath: tempAudioPath,
 			assSubtitlesPath: tempAssPath,
 			totalDuration,

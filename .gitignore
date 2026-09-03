@@ -38,6 +38,7 @@ output/
 *.key
 yt-auth/
 instagram_config.json
+/tools/cloudflared.exe
 
 # Logs
 *.log

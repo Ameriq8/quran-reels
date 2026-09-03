@@ -76,9 +76,10 @@ export default function BackgroundsPage() {
 					<div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
 						{[
 							{ id: "all", label: "الكل" },
-							{ id: "islamic", label: "🕌 مساجد وعمارة" },
-							{ id: "person", label: "👤 أشخاص وقراءة" },
-							{ id: "nature", label: "🌿 طبيعة وسماء" },
+							{ id: "إسلامية ومساجد", label: "🕌 مساجد وعمارة" },
+							{ id: "مصحف وتفاصيل", label: "📖 مصحف وتفاصيل" },
+							{ id: "أشخاص وقراءة", label: "👤 أشخاص وقراءة" },
+							{ id: "طبيعة وسماء", label: "🌿 طبيعة وسماء" },
 						].map((tab) => (
 							<button
 								key={tab.id}
@@ -94,10 +95,10 @@ export default function BackgroundsPage() {
 					<div>
 						<label className="btn btn-outline btn-sm" style={{ cursor: "pointer" }}>
 							<Upload size={16} />
-							<span>{isUploading ? "جاري الرفع..." : "رفع خلفية جديدة 📤"}</span>
+							<span>{isUploading ? "جاري الرفع..." : "رفع صورة أو فيديو 📤"}</span>
 							<input
 								type="file"
-								accept="image/*,video/*"
+								accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
 								onChange={handleUpload}
 								style={{ display: "none" }}
 								disabled={isUploading}
@@ -126,11 +127,11 @@ export default function BackgroundsPage() {
 							}}
 						>
 							<div style={{ position: "relative", width: "100%", aspectRatio: "9/16", background: "#000" }}>
-								<img
-									src={bg.url}
-									alt={bg.name}
-									style={{ width: "100%", height: "100%", objectFit: "cover" }}
-								/>
+								{bg.isVideo ? (
+									<video src={bg.url} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+								) : (
+									<img src={bg.url} alt={bg.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+								)}
 							</div>
 
 							<div style={{ padding: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -139,7 +140,7 @@ export default function BackgroundsPage() {
 									<span style={{ color: "var(--text-dim)", fontSize: "0.78rem" }}>{bg.resolution || "1080x1920"}</span>
 								</div>
 
-								<Link href="/studio" className="btn btn-primary btn-sm btn-block">
+								<Link href={`/studio?background=${encodeURIComponent(bg.filename)}`} className="btn btn-primary btn-sm btn-block">
 									<Video size={14} />
 									<span>استخدام بالاستوديو</span>
 								</Link>

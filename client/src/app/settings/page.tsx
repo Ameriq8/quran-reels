@@ -8,7 +8,23 @@ import {
 	Trash2,
 	Save,
 	RefreshCw,
+	Camera,
+	Link2,
+	ShieldCheck,
+	Copy,
+	CheckCircle2,
+	LogOut,
 } from "lucide-react";
+
+interface InstagramStatus {
+	configured: boolean;
+	connected: boolean;
+	appId: string;
+	username?: string;
+	userId?: string;
+	tokenExpiresAt?: string;
+	callbackUrl: string;
+}
 
 export default function SettingsPage() {
 	const [storage, setStorage] = useState<any>({
@@ -32,6 +48,20 @@ export default function SettingsPage() {
 	const [defaultTemplate, setDefaultTemplate] = useState("mushaf-focus");
 	const [iraqiFirst, setIraqiFirst] = useState(true);
 	const [savedMessage, setSavedMessage] = useState(false);
+	const [instagramStatus, setInstagramStatus] = useState<InstagramStatus | null>(null);
+	const [instagramAppId, setInstagramAppId] = useState("");
+	const [instagramAppSecret, setInstagramAppSecret] = useState("");
+	const [instagramBusy, setInstagramBusy] = useState(false);
+	const [instagramMessage, setInstagramMessage] = useState("");
+	const [callbackCopied, setCallbackCopied] = useState(false);
+
+	const loadInstagramStatus = async () => {
+		const res = await fetch("/api/instagram/status");
+		if (!res.ok) throw new Error("تعذر قراءة حالة Instagram");
+		const status: InstagramStatus = await res.json();
+		setInstagramStatus(status);
+		setInstagramAppId(status.appId || "");
+	};
 
 	const fetchStorage = async () => {
 		try {
@@ -55,6 +85,10 @@ export default function SettingsPage() {
 
 	useEffect(() => {
 		fetchStorage();
+		loadInstagramStatus().catch((error) => setInstagramMessage(error.message));
+		const params = new URLSearchParams(window.location.search);
+		if (params.get("instagram") === "connected") setInstagramMessage("تم ربط حساب Instagram بنجاح");
+		if (params.get("instagram_error")) setInstagramMessage(`فشل الربط: ${params.get("instagram_error")}`);
 		const loadMeta = async () => {
 			try {
 				const [rRes, tRes] = await Promise.all([
@@ -81,6 +115,51 @@ export default function SettingsPage() {
 			} catch (e) {}
 		}
 	}, []);
+
+	const saveInstagramCredentials = async (event: React.FormEvent) => {
+		event.preventDefault();
+		setInstagramBusy(true);
+		setInstagramMessage("");
+		try {
+			const res = await fetch("/api/instagram/settings", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ appId: instagramAppId, appSecret: instagramAppSecret }),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error || "تعذر حفظ البيانات");
+			setInstagramStatus(data);
+			setInstagramAppSecret("");
+			setInstagramMessage("تم حفظ بيانات Meta بأمان على هذا الجهاز");
+		} catch (error: any) {
+			setInstagramMessage(error.message);
+		} finally {
+			setInstagramBusy(false);
+		}
+	};
+
+	const disconnectInstagram = async () => {
+		if (!confirm("سيتم فصل حساب Instagram من الأداة. هل تريد المتابعة؟")) return;
+		setInstagramBusy(true);
+		try {
+			const res = await fetch("/api/instagram/disconnect", { method: "POST" });
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error || "تعذر فصل الحساب");
+			setInstagramStatus(data);
+			setInstagramMessage("تم فصل الحساب، وبقيت بيانات التطبيق محفوظة لإعادة الربط");
+		} catch (error: any) {
+			setInstagramMessage(error.message);
+		} finally {
+			setInstagramBusy(false);
+		}
+	};
+
+	const copyCallbackUrl = async () => {
+		if (!instagramStatus?.callbackUrl) return;
+		await navigator.clipboard.writeText(instagramStatus.callbackUrl);
+		setCallbackCopied(true);
+		setTimeout(() => setCallbackCopied(false), 2000);
+	};
 
 	const handleCleanTemp = async () => {
 		if (!confirm("هل أنت متأكد من رغبتك في تفريغ مجلد الملفات المؤقتة؟")) return;
@@ -120,7 +199,91 @@ export default function SettingsPage() {
 		<>
 			<TopNavbar title="الإعدادات وإدارة التخزين" />
 
-			<div className="content-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "28px" }}>
+			<div className="content-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))", gap: "28px" }}>
+				<div className="glass-card instagram-connect-card">
+					<div className="instagram-connect-header">
+						<div className="instagram-mark"><Camera size={24} /></div>
+						<div>
+							<h2>ربط Instagram والنشر المباشر</h2>
+							<p>اربط حساب Creator مرة واحدة، وبعدها انشر الريل والكابشن من الاستوديو.</p>
+						</div>
+						<div className={`instagram-status-pill ${instagramStatus?.connected ? "is-connected" : ""}`}>
+							{instagramStatus?.connected ? <CheckCircle2 size={16} /> : <Link2 size={16} />}
+							<span>{instagramStatus?.connected ? `@${instagramStatus.username || "Instagram"}` : "غير مربوط"}</span>
+						</div>
+					</div>
+
+					<div className="instagram-security-note">
+						<ShieldCheck size={20} />
+						<span>الـSecret والـToken يُحفظان مشفّرين لحساب Windows الحالي، ولا تظهر قيمتهما مرة ثانية.</span>
+					</div>
+
+					<form onSubmit={saveInstagramCredentials} className="instagram-credentials-grid">
+						<div className="form-group" style={{ margin: 0 }}>
+							<label htmlFor="instagram-app-id">Instagram App ID</label>
+							<input
+								id="instagram-app-id"
+								className="form-control"
+								inputMode="numeric"
+								autoComplete="off"
+								value={instagramAppId}
+								onChange={(event) => setInstagramAppId(event.target.value)}
+								placeholder="الرقم الظاهر في لوحة Meta"
+							/>
+						</div>
+						<div className="form-group" style={{ margin: 0 }}>
+							<label htmlFor="instagram-app-secret">Instagram App Secret</label>
+							<input
+								id="instagram-app-secret"
+								type="password"
+								className="form-control"
+								autoComplete="new-password"
+								value={instagramAppSecret}
+								onChange={(event) => setInstagramAppSecret(event.target.value)}
+								placeholder={instagramStatus?.configured ? "محفوظ — اتركه فارغًا للإبقاء عليه" : "الصق السر الجديد هنا"}
+							/>
+						</div>
+						<button className="btn btn-secondary" type="submit" disabled={instagramBusy}>
+							<Save size={17} />
+							<span>{instagramBusy ? "جاري الحفظ..." : "حفظ بيانات Meta"}</span>
+						</button>
+					</form>
+
+					<div className="instagram-callback-row">
+						<div>
+							<span className="instagram-step-label">رابط الرجوع المطلوب داخل Meta</span>
+							<code dir="ltr">{instagramStatus?.callbackUrl || "http://localhost:3000/api/instagram/callback"}</code>
+						</div>
+						<button type="button" className="btn btn-outline btn-sm" onClick={copyCallbackUrl}>
+							{callbackCopied ? <CheckCircle2 size={15} /> : <Copy size={15} />}
+							<span>{callbackCopied ? "تم النسخ" : "نسخ الرابط"}</span>
+						</button>
+					</div>
+
+					{instagramMessage && <div className="instagram-message">{instagramMessage}</div>}
+
+					<div className="instagram-actions">
+						<button
+							type="button"
+							className="btn btn-primary"
+							disabled={!instagramStatus?.configured || instagramBusy || instagramStatus.connected}
+							onClick={() => { window.location.href = "http://localhost:3000/api/instagram/connect"; }}
+						>
+							<Camera size={18} />
+							<span>{instagramStatus?.connected ? "الحساب مربوط" : "ربط حساب Instagram"}</span>
+						</button>
+						<a className="btn btn-outline" href="https://developers.facebook.com/apps/" target="_blank" rel="noreferrer">
+							فتح لوحة Meta
+						</a>
+						{instagramStatus?.connected && (
+							<button type="button" className="btn btn-secondary" onClick={disconnectInstagram} disabled={instagramBusy}>
+								<LogOut size={17} />
+								<span>فصل الحساب</span>
+							</button>
+						)}
+					</div>
+				</div>
+
 				{/* Storage Management Card */}
 				<div className="glass-card">
 					<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>

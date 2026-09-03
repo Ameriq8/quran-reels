@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { X, Download, Copy, Check } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { X, Download, Copy, Check, Camera, Send } from "lucide-react";
 
 export interface IPlayerJob {
 	id: string;
@@ -21,13 +21,11 @@ export interface IPlayerJob {
 interface PlayerModalProps {
 	job: IPlayerJob | null;
 	onClose: () => void;
+	initialInstagramMediaId?: string;
+	initialInstagramError?: string;
 }
 
-export function PlayerModal({ job, onClose }: PlayerModalProps) {
-	const [copied, setCopied] = useState(false);
-
-	if (!job) return null;
-
+export function buildInstagramCaption(job: IPlayerJob) {
 	const rawSurah = job.surahNameArabic ? job.surahNameArabic.replace(/^سورة\s+/, "") : `القرآن`;
 	const surahName = `سورة ${rawSurah}`;
 	const cleanSurahTag = rawSurah.replace(/[\s\-]/g, "_");
@@ -38,7 +36,7 @@ export function PlayerModal({ job, onClose }: PlayerModalProps) {
 	const lastAyah = firstAyah + verseCount - 1;
 	const verseRangeStr = verseCount > 1 ? `الآيات (${firstAyah} - ${lastAyah})` : `الآية (${firstAyah})`;
 
-	const caption = `✨ تلاوة خاشعة تأخذك إلى عالم من الطمأنينة والسكينة 🌿
+	return `✨ تلاوة خاشعة تأخذك إلى عالم من الطمأنينة والسكينة 🌿
 قال الله تعالى: ﴿ أَلَا بِذِكْرِ اللَّهِ تَطْمَئِنُّ الْقُلُوبُ ﴾
 
 📖 ${surahName} | ${verseRangeStr}
@@ -58,12 +56,69 @@ export function PlayerModal({ job, onClose }: PlayerModalProps) {
 .
 .
 #قرآن #قرآن_كريم #تلاوة_خاشعة #سورة_${cleanSurahTag} #${cleanReciterTag} #تلاوات_قرانية #طمأنينة #راحة_نفسية #أدعية #أذكار #صدقة_جارية #أجر_لي_ولك #اسلاميات #اكسبلور #اكسبلور_فولو #ريلز #ريلز_قران
-#quran #quranrecitation #islam #islamicreels #quranquotes #islamicreminders #reels #explore #foryou #fyp #viralreels`;
+#quran #quranrecitation #islam #islamicreels #quranquotes #islamicreminders #reels #explore #foryou #fyp #viralreels #Khair_qur`;
+}
+
+export async function publishInstagramJob(jobId: string, caption: string) {
+	const response = await fetch("http://127.0.0.1:3000/api/instagram/publish", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ jobId, caption }),
+	});
+	const text = await response.text();
+	let result: any = {};
+	try { result = JSON.parse(text); } catch {}
+	if (!response.ok) throw new Error(result.error || "تعذر إكمال النشر على Instagram");
+	if (result.status === "published") return result;
+
+	for (let attempt = 0; attempt < 180; attempt++) {
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+		const statusResponse = await fetch(`http://127.0.0.1:3000/api/instagram/publication?jobId=${encodeURIComponent(jobId)}`, { cache: "no-store" });
+		const status = await statusResponse.json();
+		if (status.status === "published") return status;
+		if (status.status === "failed") throw new Error(status.error || "فشل النشر على Instagram");
+	}
+	throw new Error("استمر النشر بالخلفية أكثر من المتوقع؛ راجع سجل الريلز بعد قليل");
+}
+
+export function PlayerModal({ job, onClose, initialInstagramMediaId, initialInstagramError }: PlayerModalProps) {
+	const [copied, setCopied] = useState(false);
+	const [caption, setCaption] = useState("");
+	const [publishing, setPublishing] = useState(false);
+	const [instagramMediaId, setInstagramMediaId] = useState(initialInstagramMediaId || "");
+	const [instagramError, setInstagramError] = useState(initialInstagramError || "");
+
+	useEffect(() => {
+		if (!job) return;
+		setCaption(buildInstagramCaption(job));
+		setInstagramMediaId(initialInstagramMediaId || "");
+		setInstagramError(initialInstagramError || "");
+	}, [job?.id, initialInstagramMediaId, initialInstagramError]);
+
+	if (!job) return null;
+
+	const rawSurah = job.surahNameArabic ? job.surahNameArabic.replace(/^سورة\s+/, "") : `القرآن`;
+	const surahName = `سورة ${rawSurah}`;
+	const reciterName = job.reciterNameArabic || "تلاوة خاشعة";
 
 	const handleCopy = () => {
 		navigator.clipboard.writeText(caption);
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2500);
+	};
+
+	const handlePublish = async () => {
+		if (!confirm("سيُنشر هذا الريل الآن مباشرة على حساب Instagram المربوط. متابعة؟")) return;
+		setPublishing(true);
+		setInstagramError("");
+		try {
+			const result = await publishInstagramJob(job.id, caption);
+			setInstagramMediaId(result.mediaId);
+		} catch (error: any) {
+			setInstagramError(error.message);
+		} finally {
+			setPublishing(false);
+		}
 	};
 
 	return (
@@ -81,7 +136,6 @@ export function PlayerModal({ job, onClose }: PlayerModalProps) {
 						<video
 							src={job.videoUrl}
 							controls
-							autoPlay
 							loop
 							playsInline
 							style={{ width: "100%", height: "100%", objectFit: "cover" }}
@@ -116,13 +170,29 @@ export function PlayerModal({ job, onClose }: PlayerModalProps) {
 							</button>
 						</div>
 
+						<button
+							type="button"
+							className="btn btn-primary btn-block"
+							onClick={handlePublish}
+							disabled={publishing || Boolean(instagramMediaId)}
+						>
+							{instagramMediaId ? <Check size={18} /> : publishing ? <Send size={18} /> : <Camera size={18} />}
+							<span>{instagramMediaId ? "تم النشر على Instagram" : publishing ? "جاري الرفع والنشر..." : "نشر الريل على Instagram"}</span>
+						</button>
+						{instagramError && (
+							<div role="alert" style={{ padding: "10px 12px", borderRadius: "var(--radius-md)", background: "rgba(239, 68, 68, 0.12)", color: "#fca5a5", fontSize: "0.84rem" }}>
+								{instagramError}
+							</div>
+						)}
+
 						<div className="form-group" style={{ margin: 0 }}>
 							<label style={{ fontSize: "0.82rem" }}>معاينة وصف الفيديو والهاشتاجات (Caption):</label>
 							<textarea
 								className="form-control"
 								rows={6}
-								readOnly
 								value={caption}
+								onChange={(event) => setCaption(event.target.value)}
+								maxLength={2200}
 								style={{ fontSize: "0.82rem", resize: "vertical", whiteSpace: "pre-wrap", lineHeight: 1.5 }}
 							/>
 						</div>

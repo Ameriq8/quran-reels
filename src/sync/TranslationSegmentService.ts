@@ -22,7 +22,10 @@ export class TranslationSegmentService {
 
 		// Single segment gets the full translation
 		if (segments.length === 1) {
-			segments[0].translationText = fullVerseTranslation || "";
+			segments[0].translationText = fullVerseTranslation || segments[0].words
+				.map((word) => TranslationSegmentService.cleanWordTranslation(word.translation?.text || ""))
+				.filter(Boolean)
+				.join(" ");
 			return segments;
 		}
 

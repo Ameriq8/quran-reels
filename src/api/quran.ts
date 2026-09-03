@@ -15,6 +15,16 @@ export class QuranApi {
 	});
 
 	/**
+	 * Get metadata for all chapters
+	 */
+	async getChapters(): Promise<IChapter[]> {
+		const { data } = await this.client.get<{ chapters: IChapter[] }>(
+			"/chapters?language=ar"
+		);
+		return data.chapters;
+	}
+
+	/**
 	 * Get metadata for a specific chapter/surah
 	 */
 	async getChapter(chapterId: number): Promise<IChapter> {
@@ -41,7 +51,7 @@ export class QuranApi {
 		chapterId: number,
 		fromVerse: number,
 		count: number,
-		translationId: number = 131,
+		translationId: number = 85,
 		audioId: number = 7
 	): Promise<IVerse[]> {
 		const { data } = await this.client.get<{ verses: IVerse[] }>(
@@ -81,7 +91,7 @@ export class QuranApi {
 	async getVerseWithWords(
 		chapterId: number,
 		verseNumber: number,
-		translationId: number = 131,
+		translationId: number = 85,
 		audioId: number = 7
 	): Promise<IVerse> {
 		const { data } = await this.client.get<{ verse: IVerse }>(

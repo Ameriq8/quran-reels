@@ -44,12 +44,20 @@ export class ReciterRegistry {
 		const flattened = allLists.flat();
 
 		// Sort by priority and Iraqi status
-		return flattened.sort((a, b) => {
+		const sorted = flattened.sort((a, b) => {
 			if (iraqiFirst) {
 				if (a.countryCode === "IQ" && b.countryCode !== "IQ") return -1;
 				if (a.countryCode !== "IQ" && b.countryCode === "IQ") return 1;
 			}
 			return a.priority - b.priority;
+		});
+
+		const seen = new Set<string>();
+		return sorted.filter((reciter) => {
+			const key = `${reciter.nameArabic}|${reciter.style || ""}`;
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
 		});
 	}
 
@@ -57,8 +65,8 @@ export class ReciterRegistry {
 	 * Find reciter by ID
 	 */
 	async getReciterById(id: string): Promise<IReciter | undefined> {
-		const all = await this.getAllReciters(false);
-		return all.find((r) => r.id === id);
+		const allLists = await Promise.all(this.providers.map((provider) => provider.getReciters()));
+		return allLists.flat().find((reciter) => reciter.id === id);
 	}
 
 	/**
