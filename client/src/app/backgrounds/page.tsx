@@ -3,12 +3,13 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { TopNavbar } from "@/components/TopNavbar";
-import { Image as ImageIcon, Upload, Check, Video } from "lucide-react";
+import { FolderOpen, Image as ImageIcon, Upload, Video } from "lucide-react";
 
 export default function BackgroundsPage() {
 	const [backgrounds, setBackgrounds] = useState<any[]>([]);
 	const [activeCategory, setActiveCategory] = useState("all");
 	const [isUploading, setIsUploading] = useState(false);
+	const [folders, setFolders] = useState({ images: "", videos: "" });
 
 	const fetchBackgrounds = async () => {
 		try {
@@ -24,7 +25,17 @@ export default function BackgroundsPage() {
 
 	useEffect(() => {
 		fetchBackgrounds();
+		fetch("/api/backgrounds/paths").then((res) => res.json()).then(setFolders).catch(console.warn);
 	}, []);
+
+	const openFolder = async (type: "images" | "videos") => {
+		const res = await fetch("/api/backgrounds/open-folder", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ type }),
+		});
+		if (!res.ok) alert("تعذر فتح المجلد");
+	};
 
 	const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const files = e.target.files;
@@ -57,6 +68,28 @@ export default function BackgroundsPage() {
 			<TopNavbar title="مكتبة الخلفيات والفيديوهات" />
 
 			<div className="content-body">
+				<div
+					className="glass-card"
+					style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "12px", marginBottom: "16px" }}
+				>
+					{[
+						{ type: "images" as const, title: "مكان الصور", path: folders.images, icon: <ImageIcon size={20} /> },
+						{ type: "videos" as const, title: "مكان الفيديوهات", path: folders.videos, icon: <Video size={20} /> },
+					].map((folder) => (
+						<div key={folder.type} style={{ padding: "14px", border: "1px solid var(--border)", borderRadius: "14px", background: "rgba(0,0,0,.18)" }}>
+							<div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--gold)", marginBottom: "8px" }}>
+								{folder.icon}<strong>{folder.title}</strong>
+							</div>
+							<code dir="ltr" style={{ display: "block", color: "var(--text-dim)", overflowWrap: "anywhere", marginBottom: "12px" }}>
+								{folder.path || "جاري تحديد المسار..."}
+							</code>
+							<button className="btn btn-outline btn-sm" onClick={() => openFolder(folder.type)} disabled={!folder.path}>
+								<FolderOpen size={16} /><span>فتح المجلد</span>
+							</button>
+						</div>
+					))}
+				</div>
+
 				{/* Top Controls */}
 				<div
 					className="glass-card"

@@ -246,9 +246,11 @@ function StudioContent() {
 
 		const bgToUse = selectedBg === "auto"
 			? (backgrounds[0]?.filename || "Quran-on-Wooden-Surface.png")
-			: selectedBg === "video-auto"
-				? backgrounds.find((background) => background.isVideo)?.filename
-				: selectedBg;
+			: selectedBg === "image-auto"
+				? backgrounds.find((background) => !background.isVideo)?.filename
+				: selectedBg === "video-auto"
+					? backgrounds.find((background) => background.isVideo)?.filename
+					: selectedBg;
 		const bgObj = backgrounds.find((b) => b.filename === bgToUse);
 		const paintBackground = (source: CanvasImageSource) => {
 			ctx.drawImage(source, 0, 0, W, H);
@@ -416,7 +418,7 @@ function StudioContent() {
 	};
 
 	const handleAutomaticToggle = async () => {
-		const backgroundMode = selectedBg === "auto" ? "بخلفيات عشوائية" : selectedBg === "video-auto" ? "بفيديو عشوائي ومقطع عشوائي منه" : `من الخلفية المختارة (${selectedBg})`;
+		const backgroundMode = selectedBg === "auto" ? "بخلفيات عشوائية" : selectedBg === "image-auto" ? "بصورة عشوائية" : selectedBg === "video-auto" ? "بفيديو عشوائي ومقطع عشوائي منه" : `من الخلفية المختارة (${selectedBg})`;
 		if (!automaticStatus.enabled && !confirm(`سيستمر إنشاء الريلز ونشرها على Instagram واحداً بعد الآخر ${backgroundMode} حتى تضغط إيقاف. هل تريد التشغيل؟`)) return;
 		setAutomaticBusy(true);
 		try {
@@ -739,8 +741,8 @@ function StudioContent() {
 							<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "8px" }}>
 								<label style={{ margin: 0 }}>
 									الخلفية الحالية:{" "}
-									<strong style={{ color: selectedBg === "auto" || selectedBg === "video-auto" ? "var(--emerald)" : "var(--gold-light)" }}>
-										{selectedBg === "auto" ? "🎲 تلقائي (صور وفيديوهات)" : selectedBg === "video-auto" ? "🎬 فيديو عشوائي فقط" : backgrounds.find((b) => b.filename === selectedBg)?.name || selectedBg}
+									<strong style={{ color: ["auto", "image-auto", "video-auto"].includes(selectedBg) ? "var(--emerald)" : "var(--gold-light)" }}>
+										{selectedBg === "auto" ? "🎲 تلقائي (صور وفيديوهات)" : selectedBg === "image-auto" ? "🖼️ صورة عشوائية فقط" : selectedBg === "video-auto" ? "🎬 فيديو عشوائي فقط" : backgrounds.find((b) => b.filename === selectedBg)?.name || selectedBg}
 									</strong>
 								</label>
 								<div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -786,6 +788,24 @@ function StudioContent() {
 										عشوائي 🎲
 									</span>
 								</div>
+
+								<button
+									type="button"
+									onClick={() => setSelectedBg("image-auto")}
+									aria-pressed={selectedBg === "image-auto"}
+									style={{
+										minWidth: "100px", height: "120px", borderRadius: "10px",
+										background: selectedBg === "image-auto" ? "linear-gradient(135deg, rgba(212, 175, 55, 0.35), rgba(16, 185, 129, 0.25))" : "var(--bg-input)",
+										border: selectedBg === "image-auto" ? "2px solid var(--gold-primary)" : "1px solid var(--border-light)",
+										cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px", padding: "8px",
+										color: selectedBg === "image-auto" ? "#fff" : "var(--text-muted)",
+										boxShadow: selectedBg === "image-auto" ? "0 0 15px rgba(212, 175, 55, 0.3)" : "none",
+									}}
+								>
+									<ImageIcon size={24} color={selectedBg === "image-auto" ? "var(--gold-light)" : "var(--text-muted)"} />
+									<strong style={{ fontSize: "0.76rem", lineHeight: 1.25 }}>صورة عشوائية فقط</strong>
+									<span style={{ fontSize: "0.65rem", color: "var(--emerald)" }}>من مجلد الصور</span>
+								</button>
 
 								<button
 									type="button"

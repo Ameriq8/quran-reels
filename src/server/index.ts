@@ -107,6 +107,12 @@ export function buildAutomaticRenderOptions(
 	};
 }
 
+export function getBackgroundFolder(type: unknown) {
+	if (type === "images") return resolve("assets");
+	if (type === "videos") return resolve("assets", "videos");
+	return null;
+}
+
 interface AutomaticReelState {
 	enabled: boolean;
 	stage: "idle" | "selecting" | "rendering" | "publishing" | "stopping" | "failed";
@@ -182,7 +188,7 @@ export function startServer(port: number = 3000) {
 				if (!automaticState.enabled) break;
 				const backgroundFiles = getBackgroundCandidates(files, videoFiles, automaticState.background);
 				if (!backgroundFiles.length) {
-					throw new Error(automaticState.background === "video-auto" ? "لا توجد فيديوهات في مجلد assets/videos" : "لا توجد خلفيات متاحة");
+					throw new Error(automaticState.background === "video-auto" ? "لا توجد فيديوهات في مجلد assets/videos" : automaticState.background === "image-auto" ? "لا توجد صور في مجلد assets" : "لا توجد خلفيات متاحة");
 				}
 				const options = buildAutomaticRenderOptions(
 					chapters,
@@ -326,7 +332,7 @@ export function startServer(port: number = 3000) {
 						return instagramJson(req, { error: "عدد الآيات للتشغيل التلقائي يجب أن يكون بين 1 و10" }, { status: 400 });
 					}
 					const background = typeof body.background === "string" ? body.background : "auto";
-					const automaticBackground = background === "auto" || background === "video-auto";
+					const automaticBackground = ["auto", "image-auto", "video-auto"].includes(background);
 					const backgroundPath = automaticBackground ? null : resolveWithin("assets", background);
 					if (!automaticBackground && (!backgroundPath || !existsSync(backgroundPath) || !/\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(background))) {
 						return instagramJson(req, { error: "الخلفية المختارة غير موجودة" }, { status: 400 });
@@ -508,6 +514,22 @@ export function startServer(port: number = 3000) {
 				}
 
 				// 7. Backgrounds Gallery
+				if (pathname === "/api/backgrounds/paths" && method === "GET") {
+					return Response.json({
+						images: getBackgroundFolder("images"),
+						videos: getBackgroundFolder("videos"),
+					});
+				}
+
+				if (pathname === "/api/backgrounds/open-folder" && method === "POST") {
+					if (!isTrustedLocalMutation(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
+					const target = getBackgroundFolder((await req.json()).type);
+					if (!target) return Response.json({ error: "Unknown background folder" }, { status: 400 });
+					await fs.mkdir(target, { recursive: true });
+					Bun.spawn(["explorer.exe", target], { stdout: "ignore", stderr: "ignore" });
+					return Response.json({ success: true, path: target });
+				}
+
 				if (pathname === "/api/backgrounds" && method === "GET") {
 					const assetsDir = resolve("assets");
 					const [files, videoFiles] = await Promise.all([

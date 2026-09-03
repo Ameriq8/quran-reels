@@ -10,9 +10,11 @@ import { resolveWithin } from "../utils/path";
 const execAsync = promisify(exec);
 const MEDIA_FILE = /\.(png|jpe?g|webp|mp4|webm|mov)$/i;
 const VIDEO_FILE = /\.(mp4|webm|mov)$/i;
+const IMAGE_FILE = /\.(png|jpe?g|webp)$/i;
 
 export function getBackgroundCandidates(rootFiles: string[], videoFiles: string[], configuredBg: string = "auto") {
 	const nestedVideos = videoFiles.filter((file) => VIDEO_FILE.test(file)).map((file) => `videos/${file}`);
+	if (configuredBg === "image-auto") return rootFiles.filter((file) => IMAGE_FILE.test(file));
 	if (configuredBg === "video-auto") return nestedVideos;
 	if (configuredBg === "auto") return [...rootFiles.filter((file) => MEDIA_FILE.test(file)), ...nestedVideos];
 	return [configuredBg];
@@ -152,7 +154,7 @@ export class VideoRenderer {
 	 */
 	async getBackground(configuredBg?: string): Promise<string> {
 		const assetsDir = resolve("assets");
-		if (configuredBg && configuredBg !== "auto" && configuredBg !== "video-auto") {
+		if (configuredBg && !["auto", "image-auto", "video-auto"].includes(configuredBg)) {
 			const directPath = resolveWithin(assetsDir, configuredBg);
 			if (directPath && existsSync(directPath)) return directPath;
 		}
@@ -164,7 +166,7 @@ export class VideoRenderer {
 		const candidates = getBackgroundCandidates(files, videoFiles, configuredBg);
 
 		if (candidates.length === 0) {
-			throw new Error(configuredBg === "video-auto" ? "لا توجد فيديوهات في assets/videos" : "لا توجد خلفيات في assets");
+			throw new Error(configuredBg === "video-auto" ? "لا توجد فيديوهات في assets/videos" : configuredBg === "image-auto" ? "لا توجد صور في assets" : "لا توجد خلفيات في assets");
 		}
 
 		return join(assetsDir, candidates[Math.floor(Math.random() * candidates.length)]);

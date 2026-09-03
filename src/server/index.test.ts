@@ -3,7 +3,7 @@ import { resolve } from "path";
 import { ReciterRegistry } from "../providers/ReciterRegistry";
 import { getSurahAudioWindow, pickRandomBackgroundStart } from "../queue/RenderQueue";
 import { resolveWithin } from "../utils/path";
-import { buildAutomaticRenderOptions, pickRandomAyah } from "./index";
+import { buildAutomaticRenderOptions, getBackgroundFolder, pickRandomAyah } from "./index";
 
 // Regression checks for issues found during the local QA pass on 2026-09-03.
 describe("server regressions", () => {
@@ -27,6 +27,12 @@ describe("server regressions", () => {
 	test("keeps the requested verse count inside a random surah", () => {
 		const chapters = [{ id: 1, verses_count: 7 }, { id: 2, verses_count: 10 }];
 		expect(pickRandomAyah(chapters, () => 0.999, 5)).toEqual({ surah: 2, verseStart: 6, verseCount: 5 });
+	});
+
+	test("only exposes the two background folders", () => {
+		expect(getBackgroundFolder("images")).toBe(resolve("assets"));
+		expect(getBackgroundFolder("videos")).toBe(resolve("assets", "videos"));
+		expect(getBackgroundFolder("../secrets")).toBeNull();
 	});
 
 	test("builds every automatic reel from fresh random choices", () => {

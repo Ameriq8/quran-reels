@@ -46,6 +46,8 @@ test("keeps an English translation and numbered ayah marker in subtitles", async
 test("video-only automation ignores image backgrounds", () => {
 	expect(getBackgroundCandidates(["mosque.jpg", "legacy.mp4"], ["long.mp4", "notes.txt"], "video-auto"))
 		.toEqual(["videos/long.mp4"]);
+	expect(getBackgroundCandidates(["mosque.jpg", "legacy.mp4"], ["long.mp4", "notes.txt"], "image-auto"))
+		.toEqual(["mosque.jpg"]);
 });
 
 test("uses only recitation audio and ends with it", async () => {
