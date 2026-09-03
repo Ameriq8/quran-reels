@@ -26,7 +26,7 @@ export default function TemplatesPage() {
 				<div
 					style={{
 						display: "grid",
-						gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
+						gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 360px), 1fr))",
 						gap: "24px",
 					}}
 				>
@@ -75,7 +75,7 @@ export default function TemplatesPage() {
 								</div>
 							</div>
 
-							<Link href="/studio" className="btn btn-primary btn-block">
+							<Link href={`/studio?template=${encodeURIComponent(tpl.id)}`} className="btn btn-primary btn-block">
 								<Video size={16} />
 								<span>تطبيق هذا القالب في الاستوديو</span>
 							</Link>

@@ -56,7 +56,7 @@ The tool programmatically fetches Quranic verses, high-quality audio recitations
   - *Mahmoud Khalil Al-Husary* (`ID: 6`)
   - *Saad Al-Ghamdi* (`ID: 3`)
 - **Multilingual Translations**:
-  - *Dr. Mustafa Khattab (The Clear Quran)* (`ID: 131`)
+  - English translation (`ID: 85`, default)
   - *Saheeh International* (`ID: 20`)
   - Any valid Quran.com translation ID (Urdu, French, Spanish, Indonesian, Turkish, etc.).
 
@@ -82,7 +82,7 @@ The entire video generation process is controlled via a simple JSON file:
   "verse_start": 1,
   "verse_count": 7,
   "reciter_id": 7,
-  "translation_id": 131,
+  "translation_id": 85,
   "show_translation": true,
   "output_dir": "output",
   "font_size": 62,

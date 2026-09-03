@@ -5,8 +5,26 @@ import { existsSync } from "fs";
 import { join, resolve } from "path";
 import type { IChapter, IVerse, IConfig } from "../api/types";
 import type { TimedQuranSegment } from "../sync/types";
+import { resolveWithin } from "../utils/path";
 
 const execAsync = promisify(exec);
+const MEDIA_FILE = /\.(png|jpe?g|webp|mp4|webm|mov)$/i;
+const VIDEO_FILE = /\.(mp4|webm|mov)$/i;
+const IMAGE_FILE = /\.(png|jpe?g|webp)$/i;
+
+export function parseBackgroundPlaybackRate(value: unknown): number | null {
+	if (value === undefined || value === null || value === "") return 1;
+	const rate = typeof value === "number" ? value : Number(value);
+	return Number.isFinite(rate) && rate >= 0.25 && rate <= 10 ? rate : null;
+}
+
+export function getBackgroundCandidates(rootFiles: string[], videoFiles: string[], configuredBg: string = "auto") {
+	const nestedVideos = videoFiles.filter((file) => VIDEO_FILE.test(file)).map((file) => `videos/${file}`);
+	if (configuredBg === "image-auto") return rootFiles.filter((file) => IMAGE_FILE.test(file));
+	if (configuredBg === "video-auto") return nestedVideos;
+	if (configuredBg === "auto") return [...rootFiles.filter((file) => MEDIA_FILE.test(file)), ...nestedVideos];
+	return [configuredBg];
+}
 
 export interface IVerseRenderData {
 	verse: IVerse;
@@ -142,23 +160,22 @@ export class VideoRenderer {
 	 */
 	async getBackground(configuredBg?: string): Promise<string> {
 		const assetsDir = resolve("assets");
-		if (configuredBg && configuredBg !== "auto") {
-			const directPath = join(assetsDir, configuredBg);
-			if (existsSync(directPath)) return directPath;
-			if (existsSync(configuredBg)) return resolve(configuredBg);
+		if (configuredBg && !["auto", "image-auto", "video-auto"].includes(configuredBg)) {
+			const directPath = resolveWithin(assetsDir, configuredBg);
+			if (directPath && existsSync(directPath)) return directPath;
 		}
 
-		const files = await fs.readdir(assetsDir);
-		const imageFiles = files.filter((f) =>
-			/\.(png|jpe?g|webp|mp4)$/i.test(f)
-		);
+		const [files, videoFiles] = await Promise.all([
+			fs.readdir(assetsDir),
+			fs.readdir(join(assetsDir, "videos")).catch(() => []),
+		]);
+		const candidates = getBackgroundCandidates(files, videoFiles, configuredBg);
 
-		if (imageFiles.length === 0) {
-			throw new Error("No background images found in assets/ directory!");
+		if (candidates.length === 0) {
+			throw new Error(configuredBg === "video-auto" ? "لا توجد فيديوهات في assets/videos" : configuredBg === "image-auto" ? "لا توجد صور في assets" : "لا توجد خلفيات في assets");
 		}
 
-		const randomImg = imageFiles[Math.floor(Math.random() * imageFiles.length)];
-		return join(assetsDir, randomImg);
+		return join(assetsDir, candidates[Math.floor(Math.random() * candidates.length)]);
 	}
 
 	/**
@@ -276,6 +293,8 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: HeaderTitle,${template.arabicFont},56,${template.primaryColor},&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,3,2,8,40,40,210,1
 Style: ReciterTag,${template.arabicFont},38,&H00E0E0E0,&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,3,2,8,40,40,285,1
 Style: ArabicVerse,${template.arabicFont},${arabicFontSize},${template.primaryColor},&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,4,3,5,60,60,100,1
+Style: AyahBadgeFrame,${template.arabicFont},96,${template.accentColor},&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
+Style: AyahBadgeNumber,${template.arabicFont},26,&H000000FF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
 Style: TranslationText,${template.translationFont},${transFontSize},&H00F0F0F0,&H000000FF,${template.outlineColor},${template.shadowColor},0,0,0,0,100,100,0,0,1,3,2,2,70,70,280,1
 Style: BrandingTag,${template.translationFont},36,&H00F0F0F0,&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,2,2,2,40,40,130,1
 
@@ -294,10 +313,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 		}
 
 		if (options.showBranding !== false) {
-			assContent += `Dialogue: 0,${headerStartTime},${headerEndTime},BrandingTag,,0,0,0,,{\\fade(300,300)}{\\fnSegoe UI Emoji\\c&H00D4AF37&}📸 {\\fn${template.translationFont}\\c&H00E0E0E0&}noor.alerta\n`;
+			assContent += `Dialogue: 0,${headerStartTime},${headerEndTime},BrandingTag,,0,0,0,,{\\fade(300,300)}{\\fnSegoe UI Emoji\\c&H00D4AF37&}📸 {\\fn${template.translationFont}\\c&H00E0E0E0&}@Khair_qur\n`;
 		}
 
-		// Phrase & Verse events (Ayah number removed)
+		const appendAyahBadge = (start: string, end: string, ayahNumber: number) => {
+			assContent += `Dialogue: 2,${start},${end},AyahBadgeFrame,,0,0,0,,{\\pos(540,1120)\\fade(150,150)}۝\n`;
+			assContent += `Dialogue: 3,${start},${end},AyahBadgeNumber,,0,0,0,,{\\pos(540,1120)\\fade(150,150)}${this.toArabicNumber(ayahNumber)}\n`;
+		};
+
+		// Phrase & Verse events
 		for (const item of verseData) {
 			if (item.segments && item.segments.length > 0) {
 				// Phrase-level synchronized rendering
@@ -307,6 +331,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 					const wrappedArabic = this.wrapArabicText(seg.arabicText, 32);
 
 					assContent += `Dialogue: 1,${startStr},${endStr},ArabicVerse,,0,0,0,,{\\fade(150,150)}${wrappedArabic}\n`;
+					if (seg.isLastSegment) appendAyahBadge(startStr, endStr, seg.ayahNumber);
 
 					if (options.showTranslation !== false && seg.translationText) {
 						const wrappedTrans = this.wrapEnglishText(seg.translationText, 34);
@@ -314,12 +339,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 					}
 				}
 			} else {
-				// Whole Ayah fallback (Ayah number removed)
+				// Whole Ayah fallback
 				const startStr = this.formatAssTime(item.startTime);
 				const endStr = this.formatAssTime(item.endTime);
 				const wrappedArabic = this.wrapArabicText(item.verse.text_uthmani, 32);
 
 				assContent += `Dialogue: 1,${startStr},${endStr},ArabicVerse,,0,0,0,,{\\fade(200,200)}${wrappedArabic}\n`;
+				appendAyahBadge(startStr, endStr, item.verse.verse_number);
 
 				if (options.showTranslation !== false && item.verse.translations?.[0]?.text) {
 					const wrappedTrans = this.wrapEnglishText(
@@ -359,11 +385,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 		}
 	}
 
+	async extractAudioSegment(inputPath: string, outputPath: string, startSeconds: number, durationSeconds: number): Promise<void> {
+		const cmd = `ffmpeg -y -ss ${Math.max(0, startSeconds).toFixed(3)} -i "${inputPath}" -t ${Math.max(0.1, durationSeconds).toFixed(3)} -vn -c:a libmp3lame -q:a 2 "${outputPath}"`;
+		await execAsync(cmd);
+	}
+
 	/**
 	 * Render the final 1080x1920 MP4 Video using FFmpeg with real-time progress callbacks
 	 */
 	async renderVideo(options: {
 		backgroundImage: string;
+		backgroundStartSeconds?: number;
+		backgroundPlaybackRate?: number;
 		combinedAudioPath: string;
 		assSubtitlesPath: string;
 		totalDuration: number;
@@ -376,10 +409,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 		const escapedAss = options.assSubtitlesPath.replace(/\\/g, "/").replace(/:/g, "\\:");
 		const out = options.outputMp4Path.replace(/\\/g, "/");
 		const opacity = options.overlayOpacity.toFixed(2);
-		const duration = (options.totalDuration + 0.2).toFixed(2);
 		const isVideoBg = /\.(mp4|webm|mov)$/i.test(bg);
+		const backgroundPlaybackRate = parseBackgroundPlaybackRate(options.backgroundPlaybackRate) ?? 1;
 
-		const filterComplex = `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,drawbox=x=0:y=0:w=iw:h=ih:color=black@${opacity}:t=fill,ass='${escapedAss}'[v]`;
+		const backgroundSpeedFilter = isVideoBg && backgroundPlaybackRate !== 1 ? `setpts=PTS/${backgroundPlaybackRate},` : "";
+		const filterComplex = `[0:v]${backgroundSpeedFilter}scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,drawbox=x=0:y=0:w=iw:h=ih:color=black@${opacity}:t=fill,ass='${escapedAss}'[v]`;
 
 		const args: string[] = [
 			"-y",
@@ -388,7 +422,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 		];
 
 		if (isVideoBg) {
-			args.push("-stream_loop", "-1", "-i", bg, "-i", audio);
+			args.push(
+				"-stream_loop", "-1",
+				"-ss", Math.max(0, options.backgroundStartSeconds || 0).toFixed(2),
+				"-i", bg,
+				"-i", audio
+			);
 		} else {
 			args.push("-loop", "1", "-i", bg, "-i", audio);
 		}
@@ -401,9 +440,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 			"-preset", "veryfast",
 			"-crf", "22",
 			"-c:a", "aac",
-			"-b:a", "192k",
+			"-b:a", "128k",
+			"-ar", "48000",
+			"-ac", "2",
 			"-pix_fmt", "yuv420p",
-			"-t", duration,
+			"-shortest",
 			"-movflags", "+faststart",
 			out
 		);

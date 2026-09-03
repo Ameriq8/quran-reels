@@ -185,7 +185,7 @@ export default function RecitersPage() {
 										<span>{isPlaying ? "إيقاف التلاوة" : "استماع عينة"}</span>
 									</button>
 
-									<Link href={`/studio`} className="btn btn-outline btn-sm" style={{ flex: 1.2 }}>
+									<Link href={`/studio?reciter=${encodeURIComponent(r.id)}`} className="btn btn-outline btn-sm" style={{ flex: 1.2 }}>
 										<Video size={16} />
 										<span>إنشاء ريل 🎬</span>
 									</Link>

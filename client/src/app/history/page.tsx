@@ -2,13 +2,14 @@
 
 import React, { useEffect, useState } from "react";
 import { TopNavbar } from "@/components/TopNavbar";
-import { PlayerModal, type IPlayerJob } from "@/components/PlayerModal";
-import { Film, Search, Download, Trash2, Play, Copy, Check } from "lucide-react";
+import { PlayerModal, buildInstagramCaption, publishInstagramJob, type IPlayerJob } from "@/components/PlayerModal";
+import { Film, Search, Download, Trash2, Play, Camera, Check, Send } from "lucide-react";
 
 export default function HistoryPage() {
 	const [history, setHistory] = useState<any[]>([]);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [selectedJob, setSelectedJob] = useState<IPlayerJob | null>(null);
+	const [busyJobId, setBusyJobId] = useState("");
 
 	const fetchHistory = async () => {
 		try {
@@ -27,6 +28,34 @@ export default function HistoryPage() {
 		const timer = setInterval(fetchHistory, 3000);
 		return () => clearInterval(timer);
 	}, []);
+
+	const publishJob = async (job: any) => {
+		if (job.instagramPublication?.status === "published" || job.instagramPublication?.status === "publishing" || !confirm("نشر هذا الريل الآن على حساب Instagram المربوط؟")) return;
+		setBusyJobId(job.id);
+		try {
+			await publishInstagramJob(job.id, buildInstagramCaption(job));
+			await fetchHistory();
+		} catch (error: any) {
+			alert(error.message || "تعذر النشر على Instagram");
+		} finally {
+			setBusyJobId("");
+		}
+	};
+
+	const deleteJob = async (job: any) => {
+		if (!confirm("حذف ملف MP4 والصورة المصغرة نهائيًا من هذا اللابتوب؟ لن يُحذف الريل المنشور من Instagram.")) return;
+		setBusyJobId(job.id);
+		try {
+			const response = await fetch(`/api/reels/${encodeURIComponent(job.id)}`, { method: "DELETE" });
+			if (!response.ok) throw new Error("تعذر حذف ملفات الريل");
+			setHistory((current) => current.filter((item) => item.id !== job.id));
+			if (selectedJob?.id === job.id) setSelectedJob(null);
+		} catch (error: any) {
+			alert(error.message || "تعذر حذف ملفات الريل");
+		} finally {
+			setBusyJobId("");
+		}
+	};
 
 	const filtered = history.filter((job) => {
 		if (!searchQuery) return true;
@@ -90,7 +119,11 @@ export default function HistoryPage() {
 							gap: "24px",
 						}}
 					>
-						{filtered.map((job) => (
+						{filtered.map((job) => {
+							const publicationStatus = job.instagramPublication?.status;
+							const isPublished = publicationStatus === "published";
+							const isPublishing = publicationStatus === "publishing" || busyJobId === job.id;
+							return (
 							<div
 								key={job.id}
 								className="glass-card"
@@ -173,7 +206,7 @@ export default function HistoryPage() {
 										</p>
 									</div>
 
-									<div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "8px", marginTop: "auto" }}>
+									<div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "8px", marginTop: "auto" }}>
 										<a
 											href={job.videoUrl}
 											download={job.outputFileName || "reel.mp4"}
@@ -189,15 +222,39 @@ export default function HistoryPage() {
 										>
 											<Play size={15} />
 										</button>
+										<button
+											className="btn btn-secondary btn-sm"
+											onClick={() => deleteJob(job)}
+											disabled={busyJobId === job.id}
+											title="حذف نهائي من اللابتوب"
+											style={{ color: "#fca5a5" }}
+										>
+											<Trash2 size={15} />
+										</button>
 									</div>
+									<button
+										type="button"
+										className={`btn btn-sm ${isPublished ? "btn-secondary" : "btn-primary"}`}
+										onClick={() => publishJob(job)}
+										disabled={isPublishing || isPublished}
+										style={isPublished ? { color: "var(--emerald)" } : undefined}
+									>
+										{isPublished ? <Check size={15} /> : isPublishing ? <Send size={15} /> : <Camera size={15} />}
+										<span>{isPublished ? "تم النشر على Instagram" : isPublishing ? "جاري النشر بالخلفية..." : publicationStatus === "failed" ? "فشل النشر — إعادة المحاولة" : "نشر على Instagram"}</span>
+									</button>
 								</div>
 							</div>
-						))}
+							);
+						})}
 					</div>
 				)}
 			</div>
 
-			<PlayerModal job={selectedJob} onClose={() => setSelectedJob(null)} />
+			<PlayerModal
+				job={selectedJob}
+				onClose={() => setSelectedJob(null)}
+				initialInstagramMediaId={(selectedJob as any)?.instagramPublication?.mediaId}
+			/>
 		</>
 	);
 }

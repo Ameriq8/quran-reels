@@ -17,7 +17,7 @@ export const DEFAULT_SETTINGS: IAppSettings = {
 	defaultReciter: "iq-raad-alkurdi",
 	defaultTemplate: "mushaf-focus",
 	defaultBackground: "",
-	defaultTranslation: 131,
+	defaultTranslation: 85,
 	showTranslationDefault: true,
 	iraqiFirst: true,
 	maxReelDuration: 60,

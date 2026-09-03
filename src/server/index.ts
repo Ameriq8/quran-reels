@@ -3,16 +3,285 @@ import fs from "fs/promises";
 import { existsSync, createReadStream } from "fs";
 import { join, resolve, extname } from "path";
 import { QuranApi } from "../api/quran";
+import type { IChapter } from "../api/types";
 import { ReciterRegistry } from "../providers/ReciterRegistry";
-import { RenderQueue, type IRenderJobOptions } from "../queue/RenderQueue";
-import { TEMPLATES } from "../renderer/video";
+import { RenderQueue, type IRenderJob, type IRenderJobOptions } from "../queue/RenderQueue";
+import { getBackgroundCandidates, parseBackgroundPlaybackRate, TEMPLATES } from "../renderer/video";
 import { StorageManager } from "../utils/storage";
+import { resolveWithin } from "../utils/path";
+import { InstagramManager } from "../integrations/instagram";
+
+async function handleInstagramCallback(url: URL, instagramManager: InstagramManager) {
+	try {
+		const error = url.searchParams.get("error_description") || url.searchParams.get("error");
+		if (error) throw new Error(error);
+		const code = url.searchParams.get("code") || "";
+		const state = url.searchParams.get("state") || "";
+		if (!code) throw new Error("لم يصل رمز الربط من Instagram");
+		await instagramManager.finishAuthorization(code, state);
+		return Response.redirect("http://localhost:3001/settings?instagram=connected", 302);
+	} catch (error: any) {
+		return Response.redirect(`http://localhost:3001/settings?instagram_error=${encodeURIComponent(error.message || "فشل الربط")}`, 302);
+	}
+}
+
+function startInstagramCallbackServer(instagramManager: InstagramManager) {
+	const certPath = resolve("instagram_tls/localhost-cert.pem");
+	const keyPath = resolve("instagram_tls/localhost-key.pem");
+	if (!existsSync(certPath) || !existsSync(keyPath)) {
+		console.warn("Instagram HTTPS callback is disabled: local certificate files are missing");
+		return;
+	}
+	serve({
+		port: 3443,
+		hostname: "127.0.0.1",
+		tls: { cert: Bun.file(certPath), key: Bun.file(keyPath) },
+		fetch(req) {
+			const url = new URL(req.url);
+			if (req.method === "GET" && url.pathname === "/api/instagram/callback") {
+				return handleInstagramCallback(url, instagramManager);
+			}
+			return new Response("Not found", { status: 404 });
+		},
+	});
+	console.log("🔒 Instagram callback is ready on https://localhost:3443");
+}
+
+function isTrustedLocalMutation(req: Request) {
+	const origin = req.headers.get("origin");
+	return !origin || /^http:\/\/(localhost|127\.0\.0\.1):300[01]$/.test(origin);
+}
+
+function instagramJson(req: Request, data: unknown, init?: ResponseInit) {
+	const response = Response.json(data, init);
+	const origin = req.headers.get("origin");
+	if (origin && isTrustedLocalMutation(req)) {
+		response.headers.set("Access-Control-Allow-Origin", origin);
+		response.headers.set("Vary", "Origin");
+	}
+	return response;
+}
+
+export function pickRandomAyah(
+	chapters: Pick<IChapter, "id" | "verses_count">[],
+	random: () => number = () => crypto.getRandomValues(new Uint32Array(1))[0] / 0x100000000,
+	verseCount: number = 1
+) {
+	const totalStarts = chapters.reduce((sum, chapter) => sum + Math.max(0, chapter.verses_count - verseCount + 1), 0);
+	if (!totalStarts) throw new Error("No Quran chapter can fit that many verses");
+	let offset = Math.floor(random() * totalStarts);
+
+	for (const chapter of chapters) {
+		const starts = Math.max(0, chapter.verses_count - verseCount + 1);
+		if (offset < starts) {
+			return { surah: chapter.id, verseStart: offset + 1, verseCount };
+		}
+		offset -= starts;
+	}
+
+	throw new Error("No Quran chapters available");
+}
+
+export function buildAutomaticRenderOptions(
+	chapters: Pick<IChapter, "id" | "verses_count">[],
+	reciterIds: string[],
+	templateIds: string[],
+	backgrounds: string[],
+	verseCount: number,
+	random: () => number = () => crypto.getRandomValues(new Uint32Array(1))[0] / 0x100000000,
+	backgroundPlaybackRate: number = 1
+): IRenderJobOptions {
+	if (!reciterIds.length || !templateIds.length) throw new Error("Automatic reels need reciters and templates");
+	const pick = <T>(items: T[]) => items[Math.floor(random() * items.length)];
+	const ayahs = pickRandomAyah(chapters, random, verseCount);
+	return {
+		...ayahs,
+		reciterId: pick(reciterIds),
+		templateId: pick(templateIds),
+		background: backgrounds.length ? pick(backgrounds) : undefined,
+		backgroundStartSeconds: -1,
+		backgroundPlaybackRate,
+		syncMode: "auto",
+		showTranslation: true,
+		showSurahArabic: true,
+		showReciter: true,
+		showBranding: true,
+	};
+}
+
+export function getBackgroundFolder(type: unknown) {
+	if (type === "images") return resolve("assets");
+	if (type === "videos") return resolve("assets", "videos");
+	return null;
+}
+
+interface AutomaticReelState {
+	enabled: boolean;
+	stage: "idle" | "selecting" | "rendering" | "publishing" | "stopping" | "failed";
+	verseCount: number;
+	background: string;
+	backgroundPlaybackRate: number;
+	completedCount: number;
+	message: string;
+	currentJobId?: string;
+	currentSummary?: string;
+	lastError?: string;
+	updatedAt: string;
+}
+
+function buildAutomaticCaption(job: IRenderJob) {
+	const firstAyah = job.options.verseStart;
+	const lastAyah = firstAyah + job.options.verseCount - 1;
+	return [
+		"✨ تلاوة خاشعة من كتاب الله",
+		`📖 سورة ${job.surahNameArabic || job.surahNameEnglish || job.options.surah} — الآيات (${firstAyah}-${lastAyah})`,
+		`🎙️ بصوت القارئ: ${job.reciterNameArabic || job.options.reciterId}`,
+		"🎧 استمع بقلبك وشارك الأجر",
+		"",
+		"#القرآن #قرآن #تلاوة #اسلام #quran #quranrecitation #reels #Khair_qur",
+	].join("\n");
+}
 
 export function startServer(port: number = 3000) {
 	const quranApi = new QuranApi();
 	const reciterRegistry = new ReciterRegistry();
 	const renderQueue = new RenderQueue();
 	const storageManager = new StorageManager();
+	const instagramManager = new InstagramManager();
+	startInstagramCallbackServer(instagramManager);
+	const automaticStateFile = resolve("cache", "automatic-reels.json");
+	let automaticState: AutomaticReelState = {
+		enabled: false,
+		stage: "idle",
+		verseCount: 5,
+		background: "auto",
+		backgroundPlaybackRate: 1,
+		completedCount: 0,
+		message: "التشغيل التلقائي متوقف",
+		updatedAt: new Date().toISOString(),
+	};
+	let automaticLoop: Promise<void> | null = null;
+
+	const saveAutomaticState = async () => {
+		automaticState.updatedAt = new Date().toISOString();
+		await fs.mkdir(resolve("cache"), { recursive: true });
+		await fs.writeFile(automaticStateFile, JSON.stringify(automaticState, null, 2), "utf8");
+	};
+
+	const updateAutomaticState = async (changes: Partial<AutomaticReelState>) => {
+		automaticState = { ...automaticState, ...changes };
+		await saveAutomaticState();
+	};
+
+	const runAutomaticLoop = async () => {
+		while (automaticState.enabled) {
+			try {
+				await updateAutomaticState({
+					stage: "selecting",
+					message: "جاري اختيار قارئ وآيات وخلفية وقالب عشوائياً...",
+					currentJobId: undefined,
+					currentSummary: undefined,
+					lastError: undefined,
+				});
+				const [chapters, reciters, files, videoFiles] = await Promise.all([
+					quranApi.getChapters(),
+					reciterRegistry.getAllReciters(false),
+					fs.readdir(resolve("assets")),
+					fs.readdir(resolve("assets", "videos")).catch(() => []),
+				]);
+				if (!automaticState.enabled) break;
+				const backgroundFiles = getBackgroundCandidates(files, videoFiles, automaticState.background);
+				if (!backgroundFiles.length) {
+					throw new Error(automaticState.background === "video-auto" ? "لا توجد فيديوهات في مجلد assets/videos" : automaticState.background === "image-auto" ? "لا توجد صور في مجلد assets" : "لا توجد خلفيات متاحة");
+				}
+				const options = buildAutomaticRenderOptions(
+					chapters,
+					reciters.map((reciter) => reciter.id),
+					Object.keys(TEMPLATES),
+					backgroundFiles,
+					automaticState.verseCount,
+					undefined,
+					automaticState.backgroundPlaybackRate
+				);
+				const reciter = reciters.find((item) => item.id === options.reciterId);
+				const job = renderQueue.addJob(options);
+				await updateAutomaticState({
+					stage: "rendering",
+					currentJobId: job.id,
+					currentSummary: `سورة ${options.surah}، الآيات ${options.verseStart}-${options.verseStart + options.verseCount - 1}، ${reciter?.nameArabic || options.reciterId}`,
+					message: "جاري إنشاء الريل العشوائي...",
+				});
+
+				while (job.status === "queued" || job.status === "processing") {
+					await Bun.sleep(1000);
+				}
+				if (job.status !== "completed") {
+					throw new Error(job.error || "فشل إنشاء الريل العشوائي");
+				}
+				if (!automaticState.enabled) break;
+				const videoPath = job.outputFileName ? resolveWithin("output", job.outputFileName) : null;
+				if (!videoPath || !existsSync(videoPath)) throw new Error("ملف الريل الناتج غير موجود");
+				await updateAutomaticState({ stage: "publishing", message: "اكتمل الفيديو؛ جاري نشره على Instagram..." });
+				try {
+					await instagramManager.publish(job.id, videoPath, buildAutomaticCaption(job));
+				} catch (error: any) {
+					await updateAutomaticState({
+						stage: "failed",
+						lastError: error.message || "فشل النشر على Instagram",
+						currentJobId: undefined,
+						currentSummary: undefined,
+						message: "فشل نشر الدورة؛ أُلغي الريل وسيتم اختيار قارئ وآيات جديدة بعد 3 ثوانٍ...",
+					});
+					for (let second = 0; second < 3 && automaticState.enabled; second++) await Bun.sleep(1000);
+					continue;
+				}
+				await updateAutomaticState({
+					completedCount: automaticState.completedCount + 1,
+					message: "تم النشر على Instagram؛ جاري بدء ريل جديد...",
+				});
+				await Bun.sleep(1500);
+			} catch (error: any) {
+				if (!automaticState.enabled) break;
+				await updateAutomaticState({
+					stage: "failed",
+					lastError: error.message || "فشلت دورة التشغيل التلقائي",
+					currentJobId: undefined,
+					currentSummary: undefined,
+					message: "تعذرت الدورة؛ أُلغي الاختيار وسيتم تبديله بعد ثانيتين...",
+				});
+				for (let second = 0; second < 2 && automaticState.enabled; second++) await Bun.sleep(1000);
+			}
+		}
+		if (automaticState.stage !== "failed" || !automaticState.lastError) {
+			await updateAutomaticState({ stage: "idle", message: "تم إيقاف التشغيل التلقائي", currentJobId: undefined });
+		}
+	};
+
+	const ensureAutomaticLoop = () => {
+		if (automaticLoop) return;
+		automaticLoop = runAutomaticLoop().finally(() => {
+			automaticLoop = null;
+			if (automaticState.enabled) ensureAutomaticLoop();
+		});
+	};
+
+	const automaticStateReady = (async () => {
+		try {
+			if (existsSync(automaticStateFile)) {
+				automaticState = { ...automaticState, ...JSON.parse(await fs.readFile(automaticStateFile, "utf8")) };
+				if (automaticState.enabled) {
+					automaticState.message = "جاري استئناف التشغيل التلقائي...";
+					ensureAutomaticLoop();
+				} else {
+					automaticState.stage = "idle";
+					automaticState.message = "التشغيل التلقائي متوقف";
+					automaticState.currentJobId = undefined;
+				}
+			}
+		} catch (error) {
+			console.warn("Could not restore automatic reel state:", error);
+		}
+	})();
 
 	const mimeTypes: Record<string, string> = {
 		".html": "text/html; charset=utf-8",
@@ -24,6 +293,8 @@ export function startServer(port: number = 3000) {
 		".jpeg": "image/jpeg",
 		".webp": "image/webp",
 		".mp4": "video/mp4",
+		".webm": "video/webm",
+		".mov": "video/quicktime",
 		".mp3": "audio/mpeg",
 		".svg": "image/svg+xml",
 	};
@@ -32,6 +303,7 @@ export function startServer(port: number = 3000) {
 
 	return serve({
 		port,
+		hostname: "127.0.0.1",
 		async fetch(req) {
 			const url = new URL(req.url);
 			const pathname = url.pathname;
@@ -39,9 +311,11 @@ export function startServer(port: number = 3000) {
 
 			// Enable CORS
 			if (method === "OPTIONS") {
+				const origin = req.headers.get("origin");
+				if (!isTrustedLocalMutation(req)) return new Response(null, { status: 403 });
 				return new Response(null, {
 					headers: {
-						"Access-Control-Allow-Origin": "*",
+						"Access-Control-Allow-Origin": origin || "http://localhost:3001",
 						"Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
 						"Access-Control-Allow-Headers": "Content-Type",
 					},
@@ -50,6 +324,104 @@ export function startServer(port: number = 3000) {
 
 			try {
 				// ==================== REST API ROUTES ====================
+
+				if (pathname === "/api/automation/status" && method === "GET") {
+					await automaticStateReady;
+					return Response.json(automaticState);
+				}
+
+				if (pathname === "/api/automation/start" && method === "POST") {
+					await automaticStateReady;
+					if (!isTrustedLocalMutation(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
+					if (!(await instagramManager.getStatus()).connected) {
+						return instagramJson(req, { error: "اربط حساب Instagram أولاً" }, { status: 400 });
+					}
+					const body = await req.json();
+					const verseCount = Number(body.verseCount);
+					if (!Number.isInteger(verseCount) || verseCount < 1 || verseCount > 10) {
+						return instagramJson(req, { error: "عدد الآيات للتشغيل التلقائي يجب أن يكون بين 1 و10" }, { status: 400 });
+					}
+					const background = typeof body.background === "string" ? body.background : "auto";
+					const backgroundPlaybackRate = parseBackgroundPlaybackRate(body.backgroundPlaybackRate);
+					if (backgroundPlaybackRate === null) {
+						return instagramJson(req, { error: "سرعة الخلفية يجب أن تكون بين 0.25x و10x" }, { status: 400 });
+					}
+					const automaticBackground = ["auto", "image-auto", "video-auto"].includes(background);
+					const backgroundPath = automaticBackground ? null : resolveWithin("assets", background);
+					if (!automaticBackground && (!backgroundPath || !existsSync(backgroundPath) || !/\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(background))) {
+						return instagramJson(req, { error: "الخلفية المختارة غير موجودة" }, { status: 400 });
+					}
+					await updateAutomaticState({
+						enabled: true,
+						stage: "selecting",
+						verseCount,
+						background,
+						backgroundPlaybackRate,
+						lastError: undefined,
+						message: "تم تشغيل الإنشاء والنشر التلقائي على Instagram",
+					});
+					ensureAutomaticLoop();
+					return instagramJson(req, automaticState);
+				}
+
+				if (pathname === "/api/automation/stop" && method === "POST") {
+					await automaticStateReady;
+					if (!isTrustedLocalMutation(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
+					await updateAutomaticState({
+						enabled: false,
+						stage: automaticLoop ? "stopping" : "idle",
+						message: automaticLoop ? "سيتم الإيقاف بعد انتهاء العملية الحالية" : "التشغيل التلقائي متوقف",
+					});
+					return instagramJson(req, automaticState);
+				}
+
+				if (pathname === "/api/instagram/status" && method === "GET") {
+					return Response.json(await instagramManager.getStatus());
+				}
+
+				if (pathname === "/api/instagram/settings" && method === "POST") {
+					if (!isTrustedLocalMutation(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
+					const body = await req.json();
+					return Response.json(await instagramManager.saveCredentials(body.appId, body.appSecret));
+				}
+
+				if (pathname === "/api/instagram/connect" && method === "GET") {
+					return Response.redirect(await instagramManager.getAuthorizationUrl(), 302);
+				}
+
+				if (pathname === "/api/instagram/callback" && method === "GET") {
+					return handleInstagramCallback(url, instagramManager);
+				}
+
+				if (pathname === "/api/instagram/disconnect" && method === "POST") {
+					if (!isTrustedLocalMutation(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
+					return Response.json(await instagramManager.disconnect());
+				}
+
+				if (pathname === "/api/instagram/publish" && method === "POST") {
+					if (!isTrustedLocalMutation(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
+					try {
+						const body = await req.json();
+						const job = renderQueue.getJob(String(body.jobId || ""));
+						if (!job || job.status !== "completed" || !job.outputFileName) {
+							return instagramJson(req, { error: "الريل المكتمل غير موجود" }, { status: 404 });
+						}
+						const videoPath = resolveWithin("output", job.outputFileName);
+						if (!videoPath || !existsSync(videoPath)) {
+							return instagramJson(req, { error: "ملف الريل غير موجود" }, { status: 404 });
+						}
+						const result = await instagramManager.startPublish(job.id, videoPath, String(body.caption || ""));
+						return instagramJson(req, { success: true, ...result }, { status: result.status === "publishing" ? 202 : 200 });
+					} catch (error: any) {
+						return instagramJson(req, { error: error.message || "فشل النشر على Instagram" }, { status: 500 });
+					}
+				}
+
+				if (pathname === "/api/instagram/publication" && method === "GET") {
+					const jobId = url.searchParams.get("jobId") || "";
+					const publication = (await instagramManager.getPublications())[jobId];
+					return instagramJson(req, publication || { status: "idle" });
+				}
 
 				// 1. Dashboard Statistics
 				if (pathname === "/api/stats" && method === "GET") {
@@ -82,15 +454,7 @@ export function startServer(port: number = 3000) {
 
 				// 2. Surah List
 				if (pathname === "/api/surahs" && method === "GET") {
-					// We can fetch from Quran.com or use cached list of 114 Surahs
-					const chapters = [];
-					for (let i = 1; i <= 114; i++) {
-						// Lightweight list
-						chapters.push({ id: i });
-					}
-					// For rich data, we query Quran.com API
-					const { data } = await quranApi["client"].get("/chapters?language=ar");
-					return Response.json(data.chapters);
+					return Response.json(await quranApi.getChapters());
 				}
 
 				// 3. Verse Canonical Text & Translation (for live preview)
@@ -98,7 +462,7 @@ export function startServer(port: number = 3000) {
 					const surah = parseInt(url.searchParams.get("surah") || url.searchParams.get("chapter") || "1", 10);
 					const from = parseInt(url.searchParams.get("from") || "1", 10);
 					const count = parseInt(url.searchParams.get("count") || "5", 10);
-					const transId = parseInt(url.searchParams.get("translation") || "131", 10);
+					const transId = parseInt(url.searchParams.get("translation") || "85", 10);
 
 					const verses = await quranApi.getVerses(surah, from, count, transId);
 					const chapter = await quranApi.getChapter(surah);
@@ -136,6 +500,7 @@ export function startServer(port: number = 3000) {
 					return Response.json({
 						reciters: reciters.map((r) => ({
 							...r,
+							nameArabic: r.style ? `${r.nameArabic} (${r.style})` : r.nameArabic,
 							isFavorite: favs.includes(r.id),
 							isRecent: recent.includes(r.id),
 						})),
@@ -164,21 +529,39 @@ export function startServer(port: number = 3000) {
 				}
 
 				// 7. Backgrounds Gallery
+				if (pathname === "/api/backgrounds/paths" && method === "GET") {
+					return Response.json({
+						images: getBackgroundFolder("images"),
+						videos: getBackgroundFolder("videos"),
+					});
+				}
+
+				if (pathname === "/api/backgrounds/open-folder" && method === "POST") {
+					if (!isTrustedLocalMutation(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
+					const target = getBackgroundFolder((await req.json()).type);
+					if (!target) return Response.json({ error: "Unknown background folder" }, { status: 400 });
+					await fs.mkdir(target, { recursive: true });
+					Bun.spawn(["explorer.exe", target], { stdout: "ignore", stderr: "ignore" });
+					return Response.json({ success: true, path: target });
+				}
+
 				if (pathname === "/api/backgrounds" && method === "GET") {
 					const assetsDir = resolve("assets");
-					const files = await fs.readdir(assetsDir);
-					const backgrounds = files
-						.filter((f) => /\.(png|jpe?g|webp|mp4)$/i.test(f))
+					const [files, videoFiles] = await Promise.all([
+						fs.readdir(assetsDir),
+						fs.readdir(join(assetsDir, "videos")).catch(() => []),
+					]);
+					const backgrounds = getBackgroundCandidates(files, videoFiles)
 						.map((f) => {
 							const isVideo = /\.(mp4|webm|mov)$/i.test(f);
-							let category = "إسلامية ومساجد";
+							let category = isVideo ? "فيديوهات" : "إسلامية ومساجد";
 							if (/child|girl|man|boy|father|person|woman/i.test(f)) category = "أشخاص وقراءة";
 							if (/bench|table|surface|rug|lighted|candle/i.test(f)) category = "مصحف وتفاصيل";
 							if (/nature|sea|sky|mountain|rain/i.test(f)) category = "طبيعة وسماء";
 
 							return {
 								filename: f,
-								url: `/assets/${encodeURIComponent(f)}`,
+								url: `/assets/${f.split("/").map(encodeURIComponent).join("/")}`,
 								isVideo,
 								category,
 								name: f.replace(/\.[^/.]+$/, "").replace(/-/g, " "),
@@ -193,6 +576,9 @@ export function startServer(port: number = 3000) {
 					const file = formData.get("file") as File | null;
 					if (!file) {
 						return Response.json({ error: "No file uploaded" }, { status: 400 });
+					}
+					if (!/\.(png|jpe?g|webp)$/i.test(file.name)) {
+						return Response.json({ error: "Unsupported background format" }, { status: 415 });
 					}
 
 					const cleanName = `custom_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
@@ -219,7 +605,7 @@ export function startServer(port: number = 3000) {
 					const verseStart = parseInt(body.verseStart, 10) || 1;
 					const verseCount = parseInt(body.verseCount, 10) || 1;
 					const syncMode = body.syncMode || "auto";
-					const translationId = body.translationId || 131;
+					const translationId = body.translationId || 85;
 
 					const { QuranPhraseSegmenter } = await import("../sync/QuranPhraseSegmenter");
 					const { TranslationSegmentService } = await import("../sync/TranslationSegmentService");
@@ -264,6 +650,11 @@ export function startServer(port: number = 3000) {
 					if (!body.surah || !body.reciterId) {
 						return Response.json({ error: "Missing required fields" }, { status: 400 });
 					}
+					const backgroundPlaybackRate = parseBackgroundPlaybackRate(body.backgroundPlaybackRate);
+					if (backgroundPlaybackRate === null) {
+						return Response.json({ error: "سرعة الخلفية يجب أن تكون بين 0.25x و10x" }, { status: 400 });
+					}
+					body.backgroundPlaybackRate = backgroundPlaybackRate;
 					const job = renderQueue.addJob(body);
 					return Response.json(job);
 				}
@@ -303,27 +694,28 @@ export function startServer(port: number = 3000) {
 				}
 
 				if (pathname === "/api/reels/history" && method === "GET") {
-					return Response.json(renderQueue.getAllJobs());
+					const published = await instagramManager.getPublications();
+					return Response.json(renderQueue.getAllJobs().map((job) => ({
+						...job,
+						instagramPublication: published[job.id],
+					})));
 				}
 
 				if (pathname.startsWith("/api/reels/") && method === "DELETE") {
+					if (!isTrustedLocalMutation(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
 					const jobId = pathname.split("/")[3];
 					const success = await renderQueue.deleteJob(jobId);
-					return Response.json({ success });
+					return Response.json({ success }, { status: success ? 200 : 404 });
 				}
 
 				// 13. Random Ayah Picker
 				if (pathname === "/api/reels/random-ayah" && method === "GET") {
-					const randomSurah = Math.floor(Math.random() * 114) + 1;
-					const chapter = await quranApi.getChapter(randomSurah);
-					const randomAyah = Math.floor(Math.random() * Math.max(1, chapter.verses_count - 3)) + 1;
-					const count = Math.min(3, chapter.verses_count - randomAyah + 1);
-
+					const chapters = await quranApi.getChapters();
+					const verseCount = Math.max(1, Math.min(286, Number(url.searchParams.get("count")) || 1));
+					const selection = pickRandomAyah(chapters, Math.random, verseCount);
 					return Response.json({
-						surah: randomSurah,
-						verseStart: randomAyah,
-						verseCount: count,
-						chapter,
+						...selection,
+						chapter: chapters.find((chapter) => chapter.id === selection.surah),
 					});
 				}
 
@@ -373,8 +765,8 @@ export function startServer(port: number = 3000) {
 				// Serve generated MP4 videos and thumbnails
 				if (pathname.startsWith("/output/")) {
 					const filename = decodeURIComponent(pathname.replace("/output/", ""));
-					const filePath = join(resolve("output"), filename);
-					if (existsSync(filePath)) {
+					const filePath = resolveWithin("output", filename);
+					if (filePath && existsSync(filePath)) {
 						const ext = extname(filePath).toLowerCase();
 						const contentType = mimeTypes[ext] || "application/octet-stream";
 						const file = Bun.file(filePath);
@@ -388,8 +780,8 @@ export function startServer(port: number = 3000) {
 				// Serve assets (background images & videos)
 				if (pathname.startsWith("/assets/")) {
 					const filename = decodeURIComponent(pathname.replace("/assets/", ""));
-					const filePath = join(resolve("assets"), filename);
-					if (existsSync(filePath)) {
+					const filePath = resolveWithin("assets", filename);
+					if (filePath && existsSync(filePath)) {
 						const ext = extname(filePath).toLowerCase();
 						const contentType = mimeTypes[ext] || "application/octet-stream";
 						const file = Bun.file(filePath);

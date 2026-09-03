@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { TopNavbar } from "@/components/TopNavbar";
-import { PlayerModal, type IPlayerJob } from "@/components/PlayerModal";
+import { PlayerModal, buildInstagramCaption, publishInstagramJob, type IPlayerJob } from "@/components/PlayerModal";
 import {
 	Sparkles,
 	Volume2,
@@ -21,7 +21,21 @@ import {
 	Image as ImageIcon,
 	Dices,
 	Search,
+	Camera,
+	Repeat2,
+	Square,
+	Video,
 } from "lucide-react";
+
+interface AutomaticReelStatus {
+	enabled: boolean;
+	stage: string;
+	verseCount: number;
+	completedCount: number;
+	message: string;
+	currentSummary?: string;
+	lastError?: string;
+}
 
 function toArabicNumerals(num: number | string): string {
 	const arabicNumerals = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
@@ -55,6 +69,8 @@ function StudioContent() {
 	const [selectedReciter, setSelectedReciter] = useState<any>(null);
 	const [selectedTemplate, setSelectedTemplate] = useState<string>("mushaf-focus");
 	const [selectedBg, setSelectedBg] = useState<string>("auto");
+	const [backgroundStartSeconds, setBackgroundStartSeconds] = useState(0);
+	const [backgroundPlaybackRate, setBackgroundPlaybackRate] = useState(1);
 	const [syncMode, setSyncMode] = useState<string>("auto");
 	const [showTranslation, setShowTranslation] = useState<boolean>(true);
 	const [showSurahHeader, setShowSurahHeader] = useState<boolean>(true);
@@ -75,30 +91,58 @@ function StudioContent() {
 	const [renderProgress, setRenderProgress] = useState(0);
 	const [renderStageText, setRenderStageText] = useState("");
 	const [completedJob, setCompletedJob] = useState<IPlayerJob | null>(null);
+	const [instagramConnected, setInstagramConnected] = useState(false);
+	const [instagramUsername, setInstagramUsername] = useState("");
+	const [publishToInstagram, setPublishToInstagram] = useState(false);
+	const [instagramCaption, setInstagramCaption] = useState("");
+	const [instagramMediaId, setInstagramMediaId] = useState("");
+	const [instagramPublishError, setInstagramPublishError] = useState("");
+	const [automaticStatus, setAutomaticStatus] = useState<AutomaticReelStatus>({
+		enabled: false,
+		stage: "idle",
+		verseCount: 5,
+		completedCount: 0,
+		message: "التشغيل التلقائي متوقف",
+	});
+	const [automaticBusy, setAutomaticBusy] = useState(false);
 
 	// Audio Preview
 	const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 	const audioRef = useRef<HTMLAudioElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
+	const backgroundVideoRef = useRef<HTMLVideoElement | null>(null);
 
 	// Initialize from query or defaults
 	useEffect(() => {
 		const surahParam = searchParams.get("surah");
 		const startParam = searchParams.get("start");
 		const countParam = searchParams.get("count");
+		const reciterParam = searchParams.get("reciter");
+		const templateParam = searchParams.get("template");
+		const backgroundParam = searchParams.get("background");
+		let savedSettings: Record<string, any> = {};
+		try {
+			savedSettings = JSON.parse(localStorage.getItem("studio_settings") || "{}");
+		} catch {}
 
 		if (surahParam) setSelectedSurah(parseInt(surahParam, 10));
 		if (startParam) setVerseStart(parseInt(startParam, 10));
 		if (countParam) setVerseEnd((parseInt(startParam || "1", 10)) + parseInt(countParam, 10) - 1);
+		setSelectedTemplate(templateParam || savedSettings.defaultTemplate || "mushaf-focus");
+		setSelectedBg(backgroundParam || savedSettings.defaultBackground || "auto");
+		const savedPlaybackRate = Number(savedSettings.backgroundPlaybackRate);
+		if (Number.isFinite(savedPlaybackRate) && savedPlaybackRate >= 0.25 && savedPlaybackRate <= 10) setBackgroundPlaybackRate(savedPlaybackRate);
 
 		// Fetch metadata
 		const loadMeta = async () => {
 			try {
-				const [sRes, rRes, tRes, bRes] = await Promise.all([
+				const [sRes, rRes, tRes, bRes, iRes, aRes] = await Promise.all([
 					fetch("/api/surahs"),
 					fetch("/api/reciters"),
 					fetch("/api/templates"),
 					fetch("/api/backgrounds"),
+					fetch("/api/instagram/status"),
+					fetch("/api/automation/status"),
 				]);
 				if (sRes.ok) setSurahs(await sRes.json());
 				if (rRes.ok) {
@@ -106,7 +150,8 @@ function StudioContent() {
 					const list = d.reciters || [];
 					setReciters(list);
 					if (list.length > 0) {
-						setSelectedReciter((prev: any) => prev || list.find((r: any) => r.id === "ea-dossari") || list[0]);
+						const preferredId = reciterParam || savedSettings.defaultReciter || "ea-dossari";
+						setSelectedReciter((prev: any) => prev || list.find((r: any) => r.id === preferredId) || list[0]);
 					}
 				}
 				if (tRes.ok) setTemplates(await tRes.json());
@@ -115,20 +160,64 @@ function StudioContent() {
 					setBackgrounds(bgs);
 					if (bgs.length > 0) setSelectedBg((prev) => prev || bgs[0].filename);
 				}
+				if (iRes.ok) {
+					const instagram = await iRes.json();
+					setInstagramConnected(Boolean(instagram.connected));
+					setInstagramUsername(instagram.username || "");
+				}
+				if (aRes.ok) setAutomaticStatus(await aRes.json());
 			} catch (e) {}
 		};
 		loadMeta();
 	}, [searchParams]);
 
+	useEffect(() => {
+		const timer = setInterval(async () => {
+			try {
+				const response = await fetch("/api/automation/status", { cache: "no-store" });
+				if (response.ok) setAutomaticStatus(await response.json());
+			} catch {}
+		}, 1500);
+		return () => clearInterval(timer);
+	}, []);
+
+	useEffect(() => {
+		if (!selectedReciter?.id) return;
+		try {
+			const settings = JSON.parse(localStorage.getItem("studio_settings") || "{}");
+			localStorage.setItem("studio_settings", JSON.stringify({ ...settings, defaultReciter: selectedReciter.id }));
+		} catch {
+			localStorage.setItem("studio_settings", JSON.stringify({ defaultReciter: selectedReciter.id }));
+		}
+	}, [selectedReciter?.id]);
+
+	useEffect(() => {
+		try {
+			const settings = JSON.parse(localStorage.getItem("studio_settings") || "{}");
+			localStorage.setItem("studio_settings", JSON.stringify({ ...settings, defaultBackground: selectedBg }));
+		} catch {}
+	}, [selectedBg]);
+
+	useEffect(() => setBackgroundStartSeconds(0), [selectedBg]);
+
+	useEffect(() => {
+		try {
+			const settings = JSON.parse(localStorage.getItem("studio_settings") || "{}");
+			localStorage.setItem("studio_settings", JSON.stringify({ ...settings, backgroundPlaybackRate }));
+		} catch {}
+	}, [backgroundPlaybackRate]);
+
 	// Fetch Verses & Segments whenever selection changes
 	useEffect(() => {
 		const count = Math.max(1, verseEnd - verseStart + 1);
+		let cancelled = false;
 
 		const loadVersesAndSegments = async () => {
 			try {
-				const vRes = await fetch(`/api/verses?surah=${selectedSurah}&chapter=${selectedSurah}&from=${verseStart}&count=${count}&translation=131`);
+				const vRes = await fetch(`/api/verses?surah=${selectedSurah}&chapter=${selectedSurah}&from=${verseStart}&count=${count}&translation=85`);
 				if (vRes.ok) {
 					const data = await vRes.json();
+					if (cancelled) return;
 					setCachedChapter(data.chapter);
 					setCachedVerses(data.verses || []);
 				}
@@ -145,12 +234,14 @@ function StudioContent() {
 				});
 				if (sRes.ok) {
 					const sData = await sRes.json();
+					if (cancelled) return;
 					setCurrentSegments(sData.segments || []);
 				}
 			} catch (e) {}
 		};
 
 		loadVersesAndSegments();
+		return () => { cancelled = true; };
 	}, [selectedSurah, verseStart, verseEnd, syncMode]);
 
 	// Redraw 9:16 Canvas
@@ -163,18 +254,38 @@ function StudioContent() {
 		const W = 1080;
 		const H = 1920;
 
-		const bgToUse = selectedBg === "auto" ? (backgrounds[0]?.filename || "Quran-on-Wooden-Surface.png") : selectedBg;
+		const bgToUse = selectedBg === "auto"
+			? (backgrounds[0]?.filename || "Quran-on-Wooden-Surface.png")
+			: selectedBg === "image-auto"
+				? backgrounds.find((background) => !background.isVideo)?.filename
+				: selectedBg === "video-auto"
+					? backgrounds.find((background) => background.isVideo)?.filename
+					: selectedBg;
 		const bgObj = backgrounds.find((b) => b.filename === bgToUse);
+		const paintBackground = (source: CanvasImageSource) => {
+			ctx.drawImage(source, 0, 0, W, H);
+			ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
+			ctx.fillRect(0, 0, W, H);
+			drawPreviewText(ctx, W, H);
+		};
 		if (bgObj) {
-			const img = new Image();
-			img.crossOrigin = "anonymous";
-			img.src = bgObj.url;
-			img.onload = () => {
-				ctx.drawImage(img, 0, 0, W, H);
-				ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
-				ctx.fillRect(0, 0, W, H);
-				drawPreviewText(ctx, W, H);
-			};
+			if (bgObj.isVideo) {
+				const video = document.createElement("video");
+				video.crossOrigin = "anonymous";
+				video.muted = true;
+				video.playbackRate = backgroundPlaybackRate;
+				video.src = bgObj.url;
+				video.onloadeddata = () => {
+					video.currentTime = Math.min(backgroundStartSeconds, Math.max(0, video.duration - 0.1));
+					if (backgroundStartSeconds === 0) paintBackground(video);
+				};
+				video.onseeked = () => paintBackground(video);
+			} else {
+				const img = new Image();
+				img.crossOrigin = "anonymous";
+				img.src = bgObj.url;
+				img.onload = () => paintBackground(img);
+			}
 		} else {
 			const grad = ctx.createLinearGradient(0, 0, 0, H);
 			grad.addColorStop(0, "#0f172a");
@@ -188,10 +299,12 @@ function StudioContent() {
 		cachedVerses,
 		selectedReciter,
 		selectedBg,
+		backgroundStartSeconds,
 		showTranslation,
 		showSurahHeader,
 		showReciterTag,
 		backgrounds,
+		backgroundPlaybackRate,
 	]);
 
 	const drawPreviewText = (ctx: CanvasRenderingContext2D, W: number, H: number) => {
@@ -274,7 +387,8 @@ function StudioContent() {
 		ctx.fillStyle = "#ffffff";
 		ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
 		ctx.shadowBlur = 10;
-		ctx.fillText("📸 noor.alerta", W / 2, 1800);
+		ctx.direction = "ltr";
+		ctx.fillText("📸 @Khair_qur", W / 2, 1800);
 	};
 
 	const handleAudioToggle = () => {
@@ -293,8 +407,52 @@ function StudioContent() {
 		}
 	};
 
+	const handleRandomReciter = () => {
+		const choices = reciters.filter((reciter) => reciter.id !== selectedReciter?.id);
+		if (!choices.length) return;
+		audioRef.current?.pause();
+		setIsPlayingAudio(false);
+		const random = crypto.getRandomValues(new Uint32Array(1))[0];
+		setSelectedReciter(choices[random % choices.length]);
+	};
+
+	const handleRandomAyahs = async () => {
+		try {
+			const response = await fetch(`/api/reels/random-ayah?count=${count}`);
+			const selection = await response.json();
+			if (!response.ok) throw new Error(selection.error || "تعذر اختيار آيات عشوائية");
+			setSelectedSurah(selection.surah);
+			setVerseStart(selection.verseStart);
+			setVerseEnd(selection.verseStart + count - 1);
+		} catch (error: any) {
+			alert(error.message || "تعذر اختيار آيات عشوائية");
+		}
+	};
+
+	const handleAutomaticToggle = async () => {
+		const backgroundMode = selectedBg === "auto" ? "بخلفيات عشوائية" : selectedBg === "image-auto" ? "بصورة عشوائية" : selectedBg === "video-auto" ? "بفيديو عشوائي ومقطع عشوائي منه" : `من الخلفية المختارة (${selectedBg})`;
+		if (!automaticStatus.enabled && !confirm(`سيستمر إنشاء الريلز ونشرها على Instagram واحداً بعد الآخر ${backgroundMode} حتى تضغط إيقاف. هل تريد التشغيل؟`)) return;
+		setAutomaticBusy(true);
+		try {
+			const response = await fetch(automaticStatus.enabled ? "/api/automation/stop" : "/api/automation/start", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ verseCount: count, background: selectedBg, backgroundPlaybackRate }),
+			});
+			const status = await response.json();
+			if (!response.ok) throw new Error(status.error || "تعذر تغيير التشغيل التلقائي");
+			setAutomaticStatus(status);
+		} catch (error: any) {
+			alert(error.message || "تعذر تغيير التشغيل التلقائي");
+		} finally {
+			setAutomaticBusy(false);
+		}
+	};
+
 	const handleStartRender = async () => {
 		try {
+			setInstagramMediaId("");
+			setInstagramPublishError("");
 			setIsRendering(true);
 			setRenderProgress(5);
 			setRenderStageText("جاري إرسال المهمة لطابور الرندر...");
@@ -310,6 +468,8 @@ function StudioContent() {
 					reciterId: selectedReciter?.id || "ea-dossari",
 					templateId: selectedTemplate,
 					background: selectedBg,
+					backgroundStartSeconds: selectedBg === "video-auto" ? -1 : backgroundStartSeconds,
+					backgroundPlaybackRate,
 					syncMode,
 					showTranslation,
 					showSurahArabic: showSurahHeader,
@@ -341,11 +501,26 @@ function StudioContent() {
 							clearInterval(timer);
 							if (finished.status === "completed") {
 								setRenderProgress(100);
-								setRenderStageText("✨ تم إنتاج الريل بنجاح!");
-								setTimeout(() => {
-									setIsRendering(false);
-									setCompletedJob(finished);
-								}, 800);
+								let publishedDirectly = false;
+								if (publishToInstagram) {
+									setRenderStageText("جاري رفع الريل ونشره على Instagram...");
+									try {
+										const publishResult = await publishInstagramJob(
+											finished.id,
+											instagramCaption.trim() || buildInstagramCaption(finished)
+										);
+										setInstagramMediaId(publishResult.mediaId || "published");
+										setRenderStageText("تم إنشاء الريل ونشره على Instagram");
+										publishedDirectly = true;
+									} catch (error: any) {
+										setInstagramPublishError(error.message);
+										setRenderStageText("تم إنشاء الريل، لكن تعذر نشره على Instagram");
+									}
+								} else {
+									setRenderStageText("✨ تم إنتاج الريل بنجاح!");
+								}
+								setIsRendering(false);
+								if (!publishedDirectly) setCompletedJob(finished);
 							} else {
 								setIsRendering(false);
 								alert("فشل الإنشاء: " + (finished.error || "خطأ أثناء المعالجة"));
@@ -363,6 +538,7 @@ function StudioContent() {
 	};
 
 	const count = Math.max(1, verseEnd - verseStart + 1);
+	const selectedBackground = backgrounds.find((background) => background.filename === selectedBg);
 
 	return (
 		<>
@@ -494,8 +670,8 @@ function StudioContent() {
 												}}
 											>
 												{v.text_uthmani}{" "}
-												<span style={{ color: "var(--gold-light)", fontSize: "1.25rem", fontFamily: "'Scheherazade New', serif" }}>
-													﴿{toArabicNumerals(v.verse_number)}﴾
+																<span style={{ color: "#ef4444", fontSize: "1.25rem", fontFamily: "'Scheherazade New', serif" }}>
+																﴿{toArabicNumerals(v.verse_number)}﴾
 												</span>
 											</div>
 											{v.translations?.[0]?.text && (
@@ -575,22 +751,24 @@ function StudioContent() {
 						</div>
 
 						<div className="form-group">
-							<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+							<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "8px" }}>
 								<label style={{ margin: 0 }}>
 									الخلفية الحالية:{" "}
-									<strong style={{ color: selectedBg === "auto" ? "var(--emerald)" : "var(--gold-light)" }}>
-										{selectedBg === "auto" ? "🎲 تلقائي (اختيار عشوائي عند الإنتاج)" : backgrounds.find((b) => b.filename === selectedBg)?.name || selectedBg}
+									<strong style={{ color: ["auto", "image-auto", "video-auto"].includes(selectedBg) ? "var(--emerald)" : "var(--gold-light)" }}>
+										{selectedBg === "auto" ? "🎲 تلقائي (صور وفيديوهات)" : selectedBg === "image-auto" ? "🖼️ صورة عشوائية فقط" : selectedBg === "video-auto" ? "🎬 فيديو عشوائي فقط" : backgrounds.find((b) => b.filename === selectedBg)?.name || selectedBg}
 									</strong>
 								</label>
-								<button
-									type="button"
-									className="btn btn-outline btn-sm"
-									onClick={() => setShowBgModal(true)}
-									style={{ padding: "4px 10px", fontSize: "0.8rem", gap: "4px" }}
-								>
-									<ImageIcon size={14} />
-									<span>تصفح كل الخلفيات ({backgrounds.length}+) 🖼️</span>
-								</button>
+								<div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+									<button
+										type="button"
+										className="btn btn-outline btn-sm"
+										onClick={() => setShowBgModal(true)}
+										style={{ padding: "4px 10px", fontSize: "0.8rem", gap: "4px" }}
+									>
+										<ImageIcon size={14} />
+										<span>تصفح كل الخلفيات ({backgrounds.length}+) 🖼️</span>
+									</button>
+								</div>
 							</div>
 
 							<div style={{ display: "flex", gap: "10px", overflowX: "auto", paddingBottom: "10px", scrollbarWidth: "thin" }}>
@@ -624,6 +802,50 @@ function StudioContent() {
 									</span>
 								</div>
 
+								<button
+									type="button"
+									onClick={() => setSelectedBg("image-auto")}
+									aria-pressed={selectedBg === "image-auto"}
+									style={{
+										minWidth: "100px", height: "120px", borderRadius: "10px",
+										background: selectedBg === "image-auto" ? "linear-gradient(135deg, rgba(212, 175, 55, 0.35), rgba(16, 185, 129, 0.25))" : "var(--bg-input)",
+										border: selectedBg === "image-auto" ? "2px solid var(--gold-primary)" : "1px solid var(--border-light)",
+										cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px", padding: "8px",
+										color: selectedBg === "image-auto" ? "#fff" : "var(--text-muted)",
+										boxShadow: selectedBg === "image-auto" ? "0 0 15px rgba(212, 175, 55, 0.3)" : "none",
+									}}
+								>
+									<ImageIcon size={24} color={selectedBg === "image-auto" ? "var(--gold-light)" : "var(--text-muted)"} />
+									<strong style={{ fontSize: "0.76rem", lineHeight: 1.25 }}>صورة عشوائية فقط</strong>
+									<span style={{ fontSize: "0.65rem", color: "var(--emerald)" }}>من مجلد الصور</span>
+								</button>
+
+								<button
+									type="button"
+									onClick={() => setSelectedBg("video-auto")}
+									aria-pressed={selectedBg === "video-auto"}
+									style={{
+										minWidth: "100px",
+										height: "120px",
+										borderRadius: "10px",
+										background: selectedBg === "video-auto" ? "linear-gradient(135deg, rgba(212, 175, 55, 0.35), rgba(59, 130, 246, 0.25))" : "var(--bg-input)",
+										border: selectedBg === "video-auto" ? "2px solid var(--gold-primary)" : "1px solid var(--border-light)",
+										cursor: "pointer",
+										display: "flex",
+										flexDirection: "column",
+										alignItems: "center",
+										justifyContent: "center",
+										gap: "6px",
+										padding: "8px",
+										color: selectedBg === "video-auto" ? "#fff" : "var(--text-muted)",
+										boxShadow: selectedBg === "video-auto" ? "0 0 15px rgba(212, 175, 55, 0.3)" : "none",
+									}}
+								>
+									<Video size={24} color={selectedBg === "video-auto" ? "var(--gold-light)" : "var(--text-muted)"} />
+									<strong style={{ fontSize: "0.76rem", lineHeight: 1.25 }}>فيديو عشوائي فقط</strong>
+									<span style={{ fontSize: "0.65rem", color: "var(--emerald)" }}>مقطع عشوائي</span>
+								</button>
+
 								{/* All Backgrounds */}
 								{backgrounds.map((bg) => (
 									<div
@@ -642,7 +864,11 @@ function StudioContent() {
 											transition: "transform 0.15s, border-color 0.15s",
 										}}
 									>
-										<img src={bg.url} alt={bg.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+										{bg.isVideo ? (
+											<video src={bg.url} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+										) : (
+											<img src={bg.url} alt={bg.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+										)}
 										{selectedBg === bg.filename && (
 											<div style={{ position: "absolute", top: "4px", right: "4px", background: "var(--gold-primary)", color: "#000", width: "18px", height: "18px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", fontWeight: "bold" }}>
 												✓
@@ -654,6 +880,48 @@ function StudioContent() {
 									</div>
 								))}
 							</div>
+
+							<div style={{ marginTop: "12px", padding: "12px 14px", borderRadius: "var(--radius-md)", background: "rgba(212, 175, 55, 0.08)", border: "1px solid rgba(212, 175, 55, 0.25)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+								<div>
+									<strong style={{ display: "block", color: "#fff", fontSize: "0.9rem" }}>سرعة فيديو الخلفية</strong>
+									<small style={{ color: "var(--text-muted)" }}>تؤثر على الخلفية فقط؛ التلاوة والكتابة تبقى طبيعية</small>
+								</div>
+								<label htmlFor="background-playback-rate" style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--gold-light)" }}>
+									<span>السرعة</span>
+									<select
+										id="background-playback-rate"
+										className="form-control"
+										value={backgroundPlaybackRate}
+										onChange={(event) => setBackgroundPlaybackRate(Number(event.target.value))}
+										style={{ width: "110px", padding: "7px 10px" }}
+									>
+										{[1, 2, 4, 7, 10].map((rate) => <option key={rate} value={rate}>{rate}x</option>)}
+									</select>
+								</label>
+							</div>
+
+							{selectedBackground?.isVideo && (
+								<div style={{ marginTop: "12px", padding: "12px", borderRadius: "var(--radius-md)", background: "var(--bg-input)", border: "1px solid var(--border-light)" }}>
+									<video
+										ref={backgroundVideoRef}
+										src={selectedBackground.url}
+										controls
+										muted
+										playsInline
+										preload="metadata"
+										onLoadedMetadata={(event) => {
+											event.currentTarget.playbackRate = backgroundPlaybackRate;
+											event.currentTarget.currentTime = Math.min(backgroundStartSeconds, Math.max(0, event.currentTarget.duration - 0.1));
+										}}
+										onPause={(event) => setBackgroundStartSeconds(Number(event.currentTarget.currentTime.toFixed(2)))}
+										onSeeked={(event) => setBackgroundStartSeconds(Number(event.currentTarget.currentTime.toFixed(2)))}
+										style={{ width: "100%", maxHeight: "280px", borderRadius: "10px", background: "#000" }}
+									/>
+									<p style={{ margin: "8px 0 0", color: "var(--text-muted)", fontSize: "0.82rem", lineHeight: 1.7 }}>
+										حرّك الفيديو إلى نقطة البداية المطلوبة ثم أوقفه. البداية الحالية: {backgroundStartSeconds.toFixed(2)} ثانية، والسرعة {backgroundPlaybackRate}x. النهاية تُحدَّد تلقائياً حسب طول التلاوة. صوت الفيديو الأصلي مكتوم.
+									</p>
+								</div>
+							)}
 						</div>
 					</div>
 
@@ -723,6 +991,85 @@ function StudioContent() {
 							</strong>
 						</div>
 
+						<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
+							<button type="button" className="btn btn-secondary" onClick={handleRandomReciter} disabled={isRendering || reciters.length < 2}>
+								<Dices size={18} />
+								<span>قارئ عشوائي</span>
+							</button>
+							<button type="button" className="btn btn-secondary" onClick={handleRandomAyahs} disabled={isRendering || !surahs.length}>
+								<Dices size={18} />
+								<span>آيات عشوائية ({count})</span>
+							</button>
+						</div>
+
+						<div className={`automatic-reels-card ${automaticStatus.enabled ? "is-running" : ""}`}>
+							<div className="automatic-reels-head">
+								<div className="automatic-reels-title">
+									<span className="automatic-reels-orbit" aria-hidden="true"><Repeat2 size={20} /></span>
+									<div>
+										<strong>التشغيل التلقائي المستمر</strong>
+										<span>Instagram فقط • يتكرر إلى أن توقفه</span>
+									</div>
+								</div>
+								<button
+									type="button"
+									className={`btn btn-sm ${automaticStatus.enabled ? "btn-secondary" : "btn-primary"}`}
+									disabled={automaticBusy || (!instagramConnected && !automaticStatus.enabled)}
+									onClick={handleAutomaticToggle}
+								>
+									{automaticStatus.enabled ? <Square size={15} /> : <Play size={16} />}
+									<span>{automaticBusy ? "لحظة..." : automaticStatus.enabled ? "إيقاف" : "تشغيل تلقائي"}</span>
+								</button>
+							</div>
+							<p>اختر فيديو قبل التشغيل ليأخذ منه مقطعاً عشوائياً جديداً بطول التلاوة في كل دورة؛ أو اختر «تلقائي» لتكون الخلفية عشوائية أيضاً. القارئ والآيات والقالب عشوائية دائماً.</p>
+							{!instagramConnected && <a className="automatic-reels-link" href="/settings">اربط حساب Instagram أولاً من الإعدادات</a>}
+							<div className="automatic-reels-status" aria-live="polite">
+								<span className={`automatic-reels-dot ${automaticStatus.enabled ? "is-live" : ""}`} />
+								<div>
+									<strong>{automaticStatus.message}</strong>
+									{automaticStatus.currentSummary && <small>{automaticStatus.currentSummary}</small>}
+									{automaticStatus.lastError && <small className="automatic-reels-error">{automaticStatus.lastError}</small>}
+								</div>
+								<span className="automatic-reels-count">نُشر {automaticStatus.completedCount}</span>
+							</div>
+						</div>
+
+						<div className={`instagram-publish-option ${publishToInstagram ? "is-enabled" : ""}`}>
+							<div className="instagram-publish-heading">
+								<div><Camera size={20} /><span>النشر المباشر على Instagram</span></div>
+								<label className="switch" title={instagramConnected ? "نشر تلقائي بعد الإنشاء" : "اربط الحساب من الإعدادات أولًا"}>
+									<input
+										type="checkbox"
+										checked={publishToInstagram}
+										disabled={!instagramConnected || isRendering || automaticStatus.enabled}
+										onChange={(event) => setPublishToInstagram(event.target.checked)}
+									/>
+									<span className="slider"></span>
+								</label>
+							</div>
+							{instagramConnected ? (
+								<p>مربوط بالحساب <strong>@{instagramUsername || "Instagram"}</strong>. عند التفعيل يُنشر الريل تلقائيًا بعد اكتمال الرندر.</p>
+							) : (
+								<p>الحساب غير مربوط. <a href="/settings">افتح الإعدادات لربط Instagram</a></p>
+							)}
+							{publishToInstagram && (
+								<div className="form-group" style={{ margin: "12px 0 0" }}>
+									<label htmlFor="instagram-caption">الكابشن (اختياري)</label>
+									<textarea
+										id="instagram-caption"
+										className="form-control"
+										rows={4}
+										maxLength={2200}
+										value={instagramCaption}
+										onChange={(event) => setInstagramCaption(event.target.value)}
+										placeholder="اتركه فارغًا حتى تُنشئ الأداة كابشن مناسب للسورة والقارئ تلقائيًا"
+									/>
+									<small style={{ color: "var(--text-dim)" }}>{instagramCaption.length}/2200</small>
+								</div>
+							)}
+							{instagramMediaId && <div className="instagram-message">تم نشر الريل مباشرة على Instagram بنجاح ✅</div>}
+						</div>
+
 						{isRendering && (
 							<div style={{ background: "var(--bg-input)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)", marginBottom: "16px" }}>
 								<div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
@@ -738,7 +1085,7 @@ function StudioContent() {
 						<button
 							type="button"
 							className="btn btn-primary btn-lg btn-block"
-							disabled={isRendering}
+							disabled={isRendering || automaticStatus.enabled}
 							onClick={handleStartRender}
 						>
 							<Rocket size={20} />
@@ -924,7 +1271,11 @@ function StudioContent() {
 											}}
 										>
 											<div style={{ height: "180px", position: "relative", overflow: "hidden" }}>
-												<img src={bg.url} alt={bg.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+												{bg.isVideo ? (
+													<video src={bg.url} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+												) : (
+													<img src={bg.url} alt={bg.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+												)}
 												{selectedBg === bg.filename && (
 													<div style={{ position: "absolute", top: "6px", right: "6px", background: "var(--gold-primary)", color: "#000", width: "22px", height: "22px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.8rem", fontWeight: "bold" }}>
 														✓
@@ -1097,7 +1448,7 @@ function StudioContent() {
 														whiteSpace: "nowrap",
 													}}
 												>
-													<span style={{ fontFamily: "'Scheherazade New', serif", fontSize: "1.25rem", color: "var(--gold-light)" }}>
+														<span style={{ fontFamily: "'Scheherazade New', serif", fontSize: "1.25rem", color: "#ef4444" }}>
 														﴿{toArabicNumerals(seg.ayahNumber)}﴾
 													</span>
 													<span>نهاية الآية</span>
@@ -1151,7 +1502,12 @@ function StudioContent() {
 				</div>
 			)}
 
-			<PlayerModal job={completedJob} onClose={() => setCompletedJob(null)} />
+			<PlayerModal
+				job={completedJob}
+				onClose={() => setCompletedJob(null)}
+				initialInstagramMediaId={instagramMediaId}
+				initialInstagramError={instagramPublishError}
+			/>
 		</>
 	);
 }
