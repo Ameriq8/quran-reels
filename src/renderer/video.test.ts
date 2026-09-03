@@ -78,10 +78,12 @@ test("uses only recitation audio and ends with it", async () => {
 		await new VideoRenderer().renderVideo({ backgroundImage: background, backgroundPlaybackRate: 10, combinedAudioPath: recitation, assSubtitlesPath: subtitles, totalDuration: 1, overlayOpacity: 0.5, outputMp4Path: output });
 
 		const duration = Number(run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", output]).trim());
+		const audioFormat = JSON.parse(run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_name,sample_rate,channels", "-of", "json", output])).streams[0];
 		const audioStats = Bun.spawnSync({ cmd: ["ffmpeg", "-hide_banner", "-i", output, "-af", "astats=metadata=1:reset=0", "-f", "null", "-"], stdout: "pipe", stderr: "pipe" }).stderr.toString();
 		const zeroCrossingRate = Number(audioStats.match(/Zero crossings rate: ([0-9.]+)/g)?.at(-1)?.split(": ")[1]);
 		expect(duration).toBeGreaterThan(0.9);
 		expect(duration).toBeLessThan(1.1);
+		expect(audioFormat).toMatchObject({ codec_name: "aac", sample_rate: "48000", channels: 2 });
 		expect(zeroCrossingRate).toBeLessThan(0.03);
 	} finally {
 		await fs.rm(dir, { recursive: true, force: true });
