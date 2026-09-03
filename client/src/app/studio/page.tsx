@@ -431,13 +431,13 @@ function StudioContent() {
 	};
 
 	const handleAutomaticToggle = async () => {
-		if (!automaticStatus.enabled && !confirm("سيستمر إنشاء الريلز ونشرها على Instagram واحداً بعد الآخر حتى تضغط إيقاف. هل تريد التشغيل؟")) return;
+		if (!automaticStatus.enabled && !confirm(`سيستمر إنشاء الريلز ونشرها على Instagram واحداً بعد الآخر ${selectedBg === "auto" ? "بخلفيات عشوائية" : `من الخلفية المختارة (${selectedBg})`} حتى تضغط إيقاف. هل تريد التشغيل؟`)) return;
 		setAutomaticBusy(true);
 		try {
 			const response = await fetch(automaticStatus.enabled ? "/api/automation/stop" : "/api/automation/start", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ verseCount: count }),
+				body: JSON.stringify({ verseCount: count, background: selectedBg }),
 			});
 			const status = await response.json();
 			if (!response.ok) throw new Error(status.error || "تعذر تغيير التشغيل التلقائي");
@@ -967,7 +967,7 @@ function StudioContent() {
 									<span>{automaticBusy ? "لحظة..." : automaticStatus.enabled ? "إيقاف" : "تشغيل تلقائي"}</span>
 								</button>
 							</div>
-							<p>كل دورة تختار قارئاً وآيات وخلفية وقالباً عشوائياً، ثم تنشئ الريل وتنشره على Instagram وتبدأ التالي.</p>
+							<p>اختر فيديو قبل التشغيل ليأخذ منه مقطعاً عشوائياً جديداً بطول التلاوة في كل دورة؛ أو اختر «تلقائي» لتكون الخلفية عشوائية أيضاً. القارئ والآيات والقالب عشوائية دائماً.</p>
 							{!instagramConnected && <a className="automatic-reels-link" href="/settings">اربط حساب Instagram أولاً من الإعدادات</a>}
 							<div className="automatic-reels-status" aria-live="polite">
 								<span className={`automatic-reels-dot ${automaticStatus.enabled ? "is-live" : ""}`} />

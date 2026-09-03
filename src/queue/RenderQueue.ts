@@ -79,6 +79,14 @@ export function getSurahAudioWindow(
 	};
 }
 
+export function pickRandomBackgroundStart(
+	backgroundDuration: number,
+	reelDuration: number,
+	random: () => number = () => crypto.getRandomValues(new Uint32Array(1))[0] / 0x100000000
+) {
+	return Number((Math.max(0, backgroundDuration - reelDuration) * random()).toFixed(2));
+}
+
 export class RenderQueue {
 	private jobs: Map<string, IRenderJob> = new Map();
 	private queue: string[] = [];
@@ -392,11 +400,15 @@ export class RenderQueue {
 		const thumbnailPath = join(outDir, thumbnailName);
 
 		const backgroundImage = await this.renderer.getBackground(opt.background);
+		const backgroundStartSeconds = /\.(mp4|webm|mov)$/i.test(backgroundImage) && opt.backgroundStartSeconds === -1
+			? pickRandomBackgroundStart(await this.renderer.getAudioDuration(backgroundImage), totalDuration)
+			: opt.backgroundStartSeconds;
+		job.options.backgroundStartSeconds = backgroundStartSeconds;
 		const template = TEMPLATES[templateId] || TEMPLATES["mushaf-focus"];
 
 		await this.renderer.renderVideo({
 			backgroundImage,
-			backgroundStartSeconds: opt.backgroundStartSeconds,
+			backgroundStartSeconds,
 			combinedAudioPath: tempAudioPath,
 			assSubtitlesPath: tempAssPath,
 			totalDuration,

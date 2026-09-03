@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "path";
 import { ReciterRegistry } from "../providers/ReciterRegistry";
-import { getSurahAudioWindow } from "../queue/RenderQueue";
+import { getSurahAudioWindow, pickRandomBackgroundStart } from "../queue/RenderQueue";
 import { resolveWithin } from "../utils/path";
 import { buildAutomaticRenderOptions, pickRandomAyah } from "./index";
 
@@ -47,8 +47,14 @@ describe("server regressions", () => {
 			reciterId: "reader-b",
 			templateId: "template-a",
 			background: "background-b.mp4",
+			backgroundStartSeconds: -1,
 			showTranslation: true,
 		});
+	});
+
+	test("picks a complete reel window inside a long background video", () => {
+		expect(pickRandomBackgroundStart(7200, 30, () => 0.5)).toBe(3585);
+		expect(pickRandomBackgroundStart(20, 30, () => 0.9)).toBe(0);
 	});
 
 	test("crops selected ayahs from a surah-level recording", () => {

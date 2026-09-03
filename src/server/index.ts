@@ -98,7 +98,7 @@ export function buildAutomaticRenderOptions(
 		reciterId: pick(reciterIds),
 		templateId: pick(templateIds),
 		background: backgrounds.length ? pick(backgrounds) : undefined,
-		backgroundStartSeconds: 0,
+		backgroundStartSeconds: -1,
 		syncMode: "auto",
 		showTranslation: true,
 		showSurahArabic: true,
@@ -111,6 +111,7 @@ interface AutomaticReelState {
 	enabled: boolean;
 	stage: "idle" | "selecting" | "rendering" | "publishing" | "stopping" | "failed";
 	verseCount: number;
+	background: string;
 	completedCount: number;
 	message: string;
 	currentJobId?: string;
@@ -144,6 +145,7 @@ export function startServer(port: number = 3000) {
 		enabled: false,
 		stage: "idle",
 		verseCount: 5,
+		background: "auto",
 		completedCount: 0,
 		message: "التشغيل التلقائي متوقف",
 		updatedAt: new Date().toISOString(),
@@ -177,11 +179,12 @@ export function startServer(port: number = 3000) {
 					fs.readdir(resolve("assets")),
 				]);
 				if (!automaticState.enabled) break;
+				const backgroundFiles = files.filter((file) => /\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(file));
 				const options = buildAutomaticRenderOptions(
 					chapters,
 					reciters.map((reciter) => reciter.id),
 					Object.keys(TEMPLATES),
-					files.filter((file) => /\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(file)),
+					automaticState.background === "auto" ? backgroundFiles : [automaticState.background],
 					automaticState.verseCount
 				);
 				const reciter = reciters.find((item) => item.id === options.reciterId);
@@ -318,10 +321,16 @@ export function startServer(port: number = 3000) {
 					if (!Number.isInteger(verseCount) || verseCount < 1 || verseCount > 10) {
 						return instagramJson(req, { error: "عدد الآيات للتشغيل التلقائي يجب أن يكون بين 1 و10" }, { status: 400 });
 					}
+					const background = typeof body.background === "string" ? body.background : "auto";
+					const backgroundPath = background === "auto" ? null : resolveWithin("assets", background);
+					if (background !== "auto" && (!backgroundPath || !existsSync(backgroundPath) || !/\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(background))) {
+						return instagramJson(req, { error: "الخلفية المختارة غير موجودة" }, { status: 400 });
+					}
 					await updateAutomaticState({
 						enabled: true,
 						stage: "selecting",
 						verseCount,
+						background,
 						lastError: undefined,
 						message: "تم تشغيل الإنشاء والنشر التلقائي على Instagram",
 					});
