@@ -32,18 +32,16 @@ export default function BackgroundsPage() {
 
 		try {
 			setIsUploading(true);
-			const file = files[0];
-			const res = await fetch(`http://${location.hostname}:3000/api/backgrounds/upload?filename=${encodeURIComponent(file.name)}`, {
+			const formData = new FormData();
+			formData.append("file", files[0]);
+			const res = await fetch("/api/backgrounds/upload", {
 				method: "POST",
-				headers: { "Content-Type": file.type || "application/octet-stream" },
-				body: file,
+				body: formData,
 			});
 
-			const result = await res.json().catch(() => ({ error: `فشل الرفع (${res.status})` }));
-			if (!res.ok) throw new Error(result.error || "فشل الرفع");
-			await fetchBackgrounds();
-		} catch (err: any) {
-			alert(err.message || "فشل الرفع");
+			if (res.ok) fetchBackgrounds();
+		} catch (err) {
+			console.error("Upload error:", err);
 		} finally {
 			setIsUploading(false);
 		}
@@ -95,10 +93,10 @@ export default function BackgroundsPage() {
 					<div>
 						<label className="btn btn-outline btn-sm" style={{ cursor: "pointer" }}>
 							<Upload size={16} />
-							<span>{isUploading ? "جاري الرفع..." : "رفع صورة أو فيديو 📤"}</span>
+							<span>{isUploading ? "جاري الرفع..." : "رفع صورة 📤"}</span>
 							<input
 								type="file"
-								accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
+								accept="image/jpeg,image/png,image/webp"
 								onChange={handleUpload}
 								style={{ display: "none" }}
 								disabled={isUploading}

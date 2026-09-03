@@ -288,7 +288,6 @@ export function startServer(port: number = 3000) {
 	return serve({
 		port,
 		hostname: "127.0.0.1",
-		maxRequestBodySize: 20 * 1024 ** 3,
 		async fetch(req) {
 			const url = new URL(req.url);
 			const pathname = url.pathname;
@@ -536,34 +535,24 @@ export function startServer(port: number = 3000) {
 
 				// 8. Upload Background
 				if (pathname === "/api/backgrounds/upload" && method === "POST") {
-					if (!isTrustedLocalMutation(req)) return instagramJson(req, { error: "Untrusted request" }, { status: 403 });
-					const requestedName = url.searchParams.get("filename");
-					const formFile = requestedName ? null : (await req.formData()).get("file") as File | null;
-					const originalName = requestedName || formFile?.name || "";
-					if (!originalName) return instagramJson(req, { error: "No file uploaded" }, { status: 400 });
-					if (!/\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(originalName)) {
-						return instagramJson(req, { error: "Unsupported background format" }, { status: 415 });
+					const formData = await req.formData();
+					const file = formData.get("file") as File | null;
+					if (!file) {
+						return Response.json({ error: "No file uploaded" }, { status: 400 });
+					}
+					if (!/\.(png|jpe?g|webp)$/i.test(file.name)) {
+						return Response.json({ error: "Unsupported background format" }, { status: 415 });
 					}
 
-					const isVideo = /\.(mp4|webm|mov)$/i.test(originalName);
-					const cleanName = `custom_${Date.now()}_${originalName.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-					const relativeName = isVideo ? `videos/${cleanName}` : cleanName;
-					const targetPath = resolveWithin("assets", relativeName);
-					if (!targetPath) return instagramJson(req, { error: "Invalid filename" }, { status: 400 });
-					await fs.mkdir(resolve("assets", "videos"), { recursive: true });
-					try {
-						if (formFile) await Bun.write(targetPath, formFile);
-						else if (req.body) await Bun.write(targetPath, new Response(req.body));
-						else throw new Error("No file uploaded");
-					} catch (error) {
-						await fs.unlink(targetPath).catch(() => {});
-						return instagramJson(req, { error: error instanceof Error ? error.message : "فشل حفظ الملف" }, { status: 500 });
-					}
+					const cleanName = `custom_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+					const targetPath = join(resolve("assets"), cleanName);
+					const arrayBuffer = await file.arrayBuffer();
+					await fs.writeFile(targetPath, Buffer.from(arrayBuffer));
 
-					return instagramJson(req, {
+					return Response.json({
 						success: true,
-						filename: relativeName,
-						url: `/assets/${relativeName.split("/").map(encodeURIComponent).join("/")}`,
+						filename: cleanName,
+						url: `/assets/${encodeURIComponent(cleanName)}`,
 					});
 				}
 

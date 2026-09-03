@@ -21,7 +21,6 @@ import {
 	Image as ImageIcon,
 	Dices,
 	Search,
-	Upload,
 	Camera,
 	Repeat2,
 	Square,
@@ -87,7 +86,6 @@ function StudioContent() {
 	const [showBgModal, setShowBgModal] = useState(false);
 	const [bgCategoryFilter, setBgCategoryFilter] = useState("all");
 	const [bgSearchQuery, setBgSearchQuery] = useState("");
-	const [isUploadingBackground, setIsUploadingBackground] = useState(false);
 	const [isRendering, setIsRendering] = useState(false);
 	const [renderProgress, setRenderProgress] = useState(0);
 	const [renderStageText, setRenderStageText] = useState("");
@@ -392,33 +390,6 @@ function StudioContent() {
 			audioRef.current.src = `/api/reciters/${selectedReciter.id}/preview`;
 			audioRef.current.play();
 			setIsPlayingAudio(true);
-		}
-	};
-
-	const handleBackgroundUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-		const input = event.currentTarget;
-		const file = input.files?.[0];
-		if (!file) return;
-
-		try {
-			setIsUploadingBackground(true);
-			const uploadResponse = await fetch(`http://${location.hostname}:3000/api/backgrounds/upload?filename=${encodeURIComponent(file.name)}`, {
-				method: "POST",
-				headers: { "Content-Type": file.type || "application/octet-stream" },
-				body: file,
-			});
-			const upload = await uploadResponse.json().catch(() => ({ error: `فشل الرفع (${uploadResponse.status})` }));
-			if (!uploadResponse.ok) throw new Error(upload.error || "فشل رفع الفيديو");
-
-			const backgroundsResponse = await fetch("/api/backgrounds");
-			if (!backgroundsResponse.ok) throw new Error("تم الرفع لكن تعذر تحديث المكتبة");
-			setBackgrounds(await backgroundsResponse.json());
-			setSelectedBg(upload.filename);
-		} catch (error: any) {
-			alert(error.message || "فشل رفع الفيديو");
-		} finally {
-			setIsUploadingBackground(false);
-			input.value = "";
 		}
 	};
 
@@ -773,17 +744,6 @@ function StudioContent() {
 									</strong>
 								</label>
 								<div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-									<label className="btn btn-primary btn-sm" style={{ cursor: isUploadingBackground ? "wait" : "pointer", padding: "4px 10px", fontSize: "0.8rem", gap: "4px" }}>
-										<Upload size={14} />
-										<span>{isUploadingBackground ? "جاري رفع الفيديو..." : "رفع فيديو من جهازي"}</span>
-										<input
-											type="file"
-											accept="video/mp4,video/webm,video/quicktime"
-											onChange={handleBackgroundUpload}
-											disabled={isUploadingBackground}
-											style={{ display: "none" }}
-										/>
-									</label>
 									<button
 										type="button"
 										className="btn btn-outline btn-sm"
