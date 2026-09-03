@@ -17,6 +17,7 @@ export interface IRenderJobOptions {
 	templateId?: string;
 	background?: string;
 	backgroundStartSeconds?: number;
+	backgroundPlaybackRate?: number;
 	showTranslation?: boolean;
 	translationId?: number;
 	showSurahArabic?: boolean;
@@ -409,6 +410,7 @@ export class RenderQueue {
 		await this.renderer.renderVideo({
 			backgroundImage,
 			backgroundStartSeconds,
+			backgroundPlaybackRate: opt.backgroundPlaybackRate,
 			combinedAudioPath: tempAudioPath,
 			assSubtitlesPath: tempAssPath,
 			totalDuration,

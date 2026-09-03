@@ -70,6 +70,7 @@ function StudioContent() {
 	const [selectedTemplate, setSelectedTemplate] = useState<string>("mushaf-focus");
 	const [selectedBg, setSelectedBg] = useState<string>("auto");
 	const [backgroundStartSeconds, setBackgroundStartSeconds] = useState(0);
+	const [backgroundPlaybackRate, setBackgroundPlaybackRate] = useState(1);
 	const [syncMode, setSyncMode] = useState<string>("auto");
 	const [showTranslation, setShowTranslation] = useState<boolean>(true);
 	const [showSurahHeader, setShowSurahHeader] = useState<boolean>(true);
@@ -119,7 +120,7 @@ function StudioContent() {
 		const reciterParam = searchParams.get("reciter");
 		const templateParam = searchParams.get("template");
 		const backgroundParam = searchParams.get("background");
-		let savedSettings: Record<string, string> = {};
+		let savedSettings: Record<string, any> = {};
 		try {
 			savedSettings = JSON.parse(localStorage.getItem("studio_settings") || "{}");
 		} catch {}
@@ -129,6 +130,8 @@ function StudioContent() {
 		if (countParam) setVerseEnd((parseInt(startParam || "1", 10)) + parseInt(countParam, 10) - 1);
 		setSelectedTemplate(templateParam || savedSettings.defaultTemplate || "mushaf-focus");
 		setSelectedBg(backgroundParam || savedSettings.defaultBackground || "auto");
+		const savedPlaybackRate = Number(savedSettings.backgroundPlaybackRate);
+		if (Number.isFinite(savedPlaybackRate) && savedPlaybackRate >= 0.25 && savedPlaybackRate <= 10) setBackgroundPlaybackRate(savedPlaybackRate);
 
 		// Fetch metadata
 		const loadMeta = async () => {
@@ -197,6 +200,13 @@ function StudioContent() {
 
 	useEffect(() => setBackgroundStartSeconds(0), [selectedBg]);
 
+	useEffect(() => {
+		try {
+			const settings = JSON.parse(localStorage.getItem("studio_settings") || "{}");
+			localStorage.setItem("studio_settings", JSON.stringify({ ...settings, backgroundPlaybackRate }));
+		} catch {}
+	}, [backgroundPlaybackRate]);
+
 	// Fetch Verses & Segments whenever selection changes
 	useEffect(() => {
 		const count = Math.max(1, verseEnd - verseStart + 1);
@@ -263,6 +273,7 @@ function StudioContent() {
 				const video = document.createElement("video");
 				video.crossOrigin = "anonymous";
 				video.muted = true;
+				video.playbackRate = backgroundPlaybackRate;
 				video.src = bgObj.url;
 				video.onloadeddata = () => {
 					video.currentTime = Math.min(backgroundStartSeconds, Math.max(0, video.duration - 0.1));
@@ -293,6 +304,7 @@ function StudioContent() {
 		showSurahHeader,
 		showReciterTag,
 		backgrounds,
+		backgroundPlaybackRate,
 	]);
 
 	const drawPreviewText = (ctx: CanvasRenderingContext2D, W: number, H: number) => {
@@ -425,7 +437,7 @@ function StudioContent() {
 			const response = await fetch(automaticStatus.enabled ? "/api/automation/stop" : "/api/automation/start", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ verseCount: count, background: selectedBg }),
+				body: JSON.stringify({ verseCount: count, background: selectedBg, backgroundPlaybackRate }),
 			});
 			const status = await response.json();
 			if (!response.ok) throw new Error(status.error || "تعذر تغيير التشغيل التلقائي");
@@ -457,6 +469,7 @@ function StudioContent() {
 					templateId: selectedTemplate,
 					background: selectedBg,
 					backgroundStartSeconds: selectedBg === "video-auto" ? -1 : backgroundStartSeconds,
+					backgroundPlaybackRate,
 					syncMode,
 					showTranslation,
 					showSurahArabic: showSurahHeader,
@@ -657,8 +670,8 @@ function StudioContent() {
 												}}
 											>
 												{v.text_uthmani}{" "}
-												<span style={{ color: "var(--gold-light)", fontSize: "1.25rem", fontFamily: "'Scheherazade New', serif" }}>
-													﴿{toArabicNumerals(v.verse_number)}﴾
+																<span style={{ color: "#ef4444", fontSize: "1.25rem", fontFamily: "'Scheherazade New', serif" }}>
+																﴿{toArabicNumerals(v.verse_number)}﴾
 												</span>
 											</div>
 											{v.translations?.[0]?.text && (
@@ -868,6 +881,25 @@ function StudioContent() {
 								))}
 							</div>
 
+							<div style={{ marginTop: "12px", padding: "12px 14px", borderRadius: "var(--radius-md)", background: "rgba(212, 175, 55, 0.08)", border: "1px solid rgba(212, 175, 55, 0.25)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+								<div>
+									<strong style={{ display: "block", color: "#fff", fontSize: "0.9rem" }}>سرعة فيديو الخلفية</strong>
+									<small style={{ color: "var(--text-muted)" }}>تؤثر على الخلفية فقط؛ التلاوة والكتابة تبقى طبيعية</small>
+								</div>
+								<label htmlFor="background-playback-rate" style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--gold-light)" }}>
+									<span>السرعة</span>
+									<select
+										id="background-playback-rate"
+										className="form-control"
+										value={backgroundPlaybackRate}
+										onChange={(event) => setBackgroundPlaybackRate(Number(event.target.value))}
+										style={{ width: "110px", padding: "7px 10px" }}
+									>
+										{[1, 2, 4, 7, 10].map((rate) => <option key={rate} value={rate}>{rate}x</option>)}
+									</select>
+								</label>
+							</div>
+
 							{selectedBackground?.isVideo && (
 								<div style={{ marginTop: "12px", padding: "12px", borderRadius: "var(--radius-md)", background: "var(--bg-input)", border: "1px solid var(--border-light)" }}>
 									<video
@@ -878,6 +910,7 @@ function StudioContent() {
 										playsInline
 										preload="metadata"
 										onLoadedMetadata={(event) => {
+											event.currentTarget.playbackRate = backgroundPlaybackRate;
 											event.currentTarget.currentTime = Math.min(backgroundStartSeconds, Math.max(0, event.currentTarget.duration - 0.1));
 										}}
 										onPause={(event) => setBackgroundStartSeconds(Number(event.currentTarget.currentTime.toFixed(2)))}
@@ -885,7 +918,7 @@ function StudioContent() {
 										style={{ width: "100%", maxHeight: "280px", borderRadius: "10px", background: "#000" }}
 									/>
 									<p style={{ margin: "8px 0 0", color: "var(--text-muted)", fontSize: "0.82rem", lineHeight: 1.7 }}>
-										حرّك الفيديو إلى نقطة البداية المطلوبة ثم أوقفه. البداية الحالية: {backgroundStartSeconds.toFixed(2)} ثانية، والنهاية تُحدَّد تلقائياً حسب طول التلاوة. صوت الفيديو الأصلي مكتوم.
+										حرّك الفيديو إلى نقطة البداية المطلوبة ثم أوقفه. البداية الحالية: {backgroundStartSeconds.toFixed(2)} ثانية، والسرعة {backgroundPlaybackRate}x. النهاية تُحدَّد تلقائياً حسب طول التلاوة. صوت الفيديو الأصلي مكتوم.
 									</p>
 								</div>
 							)}
@@ -1415,7 +1448,7 @@ function StudioContent() {
 														whiteSpace: "nowrap",
 													}}
 												>
-													<span style={{ fontFamily: "'Scheherazade New', serif", fontSize: "1.25rem", color: "var(--gold-light)" }}>
+														<span style={{ fontFamily: "'Scheherazade New', serif", fontSize: "1.25rem", color: "#ef4444" }}>
 														﴿{toArabicNumerals(seg.ayahNumber)}﴾
 													</span>
 													<span>نهاية الآية</span>

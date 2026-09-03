@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { TranslationSegmentService } from "../sync/TranslationSegmentService";
-import { getBackgroundCandidates, VideoRenderer } from "./video";
+import { getBackgroundCandidates, parseBackgroundPlaybackRate, VideoRenderer } from "./video";
 
 function run(command: string[]) {
 	const result = Bun.spawnSync({ cmd: command, stdout: "pipe", stderr: "pipe" });
@@ -36,6 +36,7 @@ test("keeps an English translation and numbered ayah marker in subtitles", async
 		expect(subtitles).toContain("In the name of Allah");
 		expect(subtitles).toContain("Style: AyahBadgeFrame");
 		expect(subtitles).toContain("AyahBadgeFrame,,0,0,0,,{\\pos(540,1120)\\fade(150,150)}۝");
+		expect(subtitles).toContain("Style: AyahBadgeNumber,Scheherazade New,26,&H000000FF");
 		expect(subtitles).toContain("AyahBadgeNumber,,0,0,0,,{\\pos(540,1120)\\fade(150,150)}١");
 		expect(subtitles).not.toContain("۝١");
 	} finally {
@@ -48,6 +49,12 @@ test("video-only automation ignores image backgrounds", () => {
 		.toEqual(["videos/long.mp4"]);
 	expect(getBackgroundCandidates(["mosque.jpg", "legacy.mp4"], ["long.mp4", "notes.txt"], "image-auto"))
 		.toEqual(["mosque.jpg"]);
+});
+
+test("accepts background speeds up to 10x", () => {
+	expect(parseBackgroundPlaybackRate(7)).toBe(7);
+	expect(parseBackgroundPlaybackRate(10)).toBe(10);
+	expect(parseBackgroundPlaybackRate(10.1)).toBeNull();
 });
 
 test("uses only recitation audio and ends with it", async () => {
@@ -68,7 +75,7 @@ test("uses only recitation audio and ends with it", async () => {
 			{ showTranslation: false },
 			subtitles
 		);
-		await new VideoRenderer().renderVideo({ backgroundImage: background, combinedAudioPath: recitation, assSubtitlesPath: subtitles, totalDuration: 1, overlayOpacity: 0.5, outputMp4Path: output });
+		await new VideoRenderer().renderVideo({ backgroundImage: background, backgroundPlaybackRate: 10, combinedAudioPath: recitation, assSubtitlesPath: subtitles, totalDuration: 1, overlayOpacity: 0.5, outputMp4Path: output });
 
 		const duration = Number(run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", output]).trim());
 		const audioStats = Bun.spawnSync({ cmd: ["ffmpeg", "-hide_banner", "-i", output, "-af", "astats=metadata=1:reset=0", "-f", "null", "-"], stdout: "pipe", stderr: "pipe" }).stderr.toString();
@@ -79,4 +86,4 @@ test("uses only recitation audio and ends with it", async () => {
 	} finally {
 		await fs.rm(dir, { recursive: true, force: true });
 	}
-});
+}, 15000);

@@ -6,7 +6,7 @@ import { QuranApi } from "../api/quran";
 import type { IChapter } from "../api/types";
 import { ReciterRegistry } from "../providers/ReciterRegistry";
 import { RenderQueue, type IRenderJob, type IRenderJobOptions } from "../queue/RenderQueue";
-import { getBackgroundCandidates, TEMPLATES } from "../renderer/video";
+import { getBackgroundCandidates, parseBackgroundPlaybackRate, TEMPLATES } from "../renderer/video";
 import { StorageManager } from "../utils/storage";
 import { resolveWithin } from "../utils/path";
 import { InstagramManager } from "../integrations/instagram";
@@ -88,7 +88,8 @@ export function buildAutomaticRenderOptions(
 	templateIds: string[],
 	backgrounds: string[],
 	verseCount: number,
-	random: () => number = () => crypto.getRandomValues(new Uint32Array(1))[0] / 0x100000000
+	random: () => number = () => crypto.getRandomValues(new Uint32Array(1))[0] / 0x100000000,
+	backgroundPlaybackRate: number = 1
 ): IRenderJobOptions {
 	if (!reciterIds.length || !templateIds.length) throw new Error("Automatic reels need reciters and templates");
 	const pick = <T>(items: T[]) => items[Math.floor(random() * items.length)];
@@ -99,6 +100,7 @@ export function buildAutomaticRenderOptions(
 		templateId: pick(templateIds),
 		background: backgrounds.length ? pick(backgrounds) : undefined,
 		backgroundStartSeconds: -1,
+		backgroundPlaybackRate,
 		syncMode: "auto",
 		showTranslation: true,
 		showSurahArabic: true,
@@ -118,6 +120,7 @@ interface AutomaticReelState {
 	stage: "idle" | "selecting" | "rendering" | "publishing" | "stopping" | "failed";
 	verseCount: number;
 	background: string;
+	backgroundPlaybackRate: number;
 	completedCount: number;
 	message: string;
 	currentJobId?: string;
@@ -152,6 +155,7 @@ export function startServer(port: number = 3000) {
 		stage: "idle",
 		verseCount: 5,
 		background: "auto",
+		backgroundPlaybackRate: 1,
 		completedCount: 0,
 		message: "التشغيل التلقائي متوقف",
 		updatedAt: new Date().toISOString(),
@@ -195,7 +199,9 @@ export function startServer(port: number = 3000) {
 					reciters.map((reciter) => reciter.id),
 					Object.keys(TEMPLATES),
 					backgroundFiles,
-					automaticState.verseCount
+					automaticState.verseCount,
+					undefined,
+					automaticState.backgroundPlaybackRate
 				);
 				const reciter = reciters.find((item) => item.id === options.reciterId);
 				const job = renderQueue.addJob(options);
@@ -332,6 +338,10 @@ export function startServer(port: number = 3000) {
 						return instagramJson(req, { error: "عدد الآيات للتشغيل التلقائي يجب أن يكون بين 1 و10" }, { status: 400 });
 					}
 					const background = typeof body.background === "string" ? body.background : "auto";
+					const backgroundPlaybackRate = parseBackgroundPlaybackRate(body.backgroundPlaybackRate);
+					if (backgroundPlaybackRate === null) {
+						return instagramJson(req, { error: "سرعة الخلفية يجب أن تكون بين 0.25x و10x" }, { status: 400 });
+					}
 					const automaticBackground = ["auto", "image-auto", "video-auto"].includes(background);
 					const backgroundPath = automaticBackground ? null : resolveWithin("assets", background);
 					if (!automaticBackground && (!backgroundPath || !existsSync(backgroundPath) || !/\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(background))) {
@@ -342,6 +352,7 @@ export function startServer(port: number = 3000) {
 						stage: "selecting",
 						verseCount,
 						background,
+						backgroundPlaybackRate,
 						lastError: undefined,
 						message: "تم تشغيل الإنشاء والنشر التلقائي على Instagram",
 					});
@@ -635,6 +646,11 @@ export function startServer(port: number = 3000) {
 					if (!body.surah || !body.reciterId) {
 						return Response.json({ error: "Missing required fields" }, { status: 400 });
 					}
+					const backgroundPlaybackRate = parseBackgroundPlaybackRate(body.backgroundPlaybackRate);
+					if (backgroundPlaybackRate === null) {
+						return Response.json({ error: "سرعة الخلفية يجب أن تكون بين 0.25x و10x" }, { status: 400 });
+					}
+					body.backgroundPlaybackRate = backgroundPlaybackRate;
 					const job = renderQueue.addJob(body);
 					return Response.json(job);
 				}

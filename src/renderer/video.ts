@@ -12,6 +12,12 @@ const MEDIA_FILE = /\.(png|jpe?g|webp|mp4|webm|mov)$/i;
 const VIDEO_FILE = /\.(mp4|webm|mov)$/i;
 const IMAGE_FILE = /\.(png|jpe?g|webp)$/i;
 
+export function parseBackgroundPlaybackRate(value: unknown): number | null {
+	if (value === undefined || value === null || value === "") return 1;
+	const rate = typeof value === "number" ? value : Number(value);
+	return Number.isFinite(rate) && rate >= 0.25 && rate <= 10 ? rate : null;
+}
+
 export function getBackgroundCandidates(rootFiles: string[], videoFiles: string[], configuredBg: string = "auto") {
 	const nestedVideos = videoFiles.filter((file) => VIDEO_FILE.test(file)).map((file) => `videos/${file}`);
 	if (configuredBg === "image-auto") return rootFiles.filter((file) => IMAGE_FILE.test(file));
@@ -288,7 +294,7 @@ Style: HeaderTitle,${template.arabicFont},56,${template.primaryColor},&H000000FF
 Style: ReciterTag,${template.arabicFont},38,&H00E0E0E0,&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,3,2,8,40,40,285,1
 Style: ArabicVerse,${template.arabicFont},${arabicFontSize},${template.primaryColor},&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,4,3,5,60,60,100,1
 Style: AyahBadgeFrame,${template.arabicFont},96,${template.accentColor},&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
-Style: AyahBadgeNumber,${template.arabicFont},26,&H00000000,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
+Style: AyahBadgeNumber,${template.arabicFont},26,&H000000FF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
 Style: TranslationText,${template.translationFont},${transFontSize},&H00F0F0F0,&H000000FF,${template.outlineColor},${template.shadowColor},0,0,0,0,100,100,0,0,1,3,2,2,70,70,280,1
 Style: BrandingTag,${template.translationFont},36,&H00F0F0F0,&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,2,2,2,40,40,130,1
 
@@ -390,6 +396,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 	async renderVideo(options: {
 		backgroundImage: string;
 		backgroundStartSeconds?: number;
+		backgroundPlaybackRate?: number;
 		combinedAudioPath: string;
 		assSubtitlesPath: string;
 		totalDuration: number;
@@ -403,8 +410,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 		const out = options.outputMp4Path.replace(/\\/g, "/");
 		const opacity = options.overlayOpacity.toFixed(2);
 		const isVideoBg = /\.(mp4|webm|mov)$/i.test(bg);
+		const backgroundPlaybackRate = parseBackgroundPlaybackRate(options.backgroundPlaybackRate) ?? 1;
 
-		const filterComplex = `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,drawbox=x=0:y=0:w=iw:h=ih:color=black@${opacity}:t=fill,ass='${escapedAss}'[v]`;
+		const backgroundSpeedFilter = isVideoBg && backgroundPlaybackRate !== 1 ? `setpts=PTS/${backgroundPlaybackRate},` : "";
+		const filterComplex = `[0:v]${backgroundSpeedFilter}scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,drawbox=x=0:y=0:w=iw:h=ih:color=black@${opacity}:t=fill,ass='${escapedAss}'[v]`;
 
 		const args: string[] = [
 			"-y",
