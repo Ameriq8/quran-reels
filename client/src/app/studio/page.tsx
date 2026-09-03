@@ -23,7 +23,19 @@ import {
 	Search,
 	Upload,
 	Camera,
+	Repeat2,
+	Square,
 } from "lucide-react";
+
+interface AutomaticReelStatus {
+	enabled: boolean;
+	stage: string;
+	verseCount: number;
+	completedCount: number;
+	message: string;
+	currentSummary?: string;
+	lastError?: string;
+}
 
 function toArabicNumerals(num: number | string): string {
 	const arabicNumerals = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
@@ -85,6 +97,14 @@ function StudioContent() {
 	const [instagramCaption, setInstagramCaption] = useState("");
 	const [instagramMediaId, setInstagramMediaId] = useState("");
 	const [instagramPublishError, setInstagramPublishError] = useState("");
+	const [automaticStatus, setAutomaticStatus] = useState<AutomaticReelStatus>({
+		enabled: false,
+		stage: "idle",
+		verseCount: 5,
+		completedCount: 0,
+		message: "التشغيل التلقائي متوقف",
+	});
+	const [automaticBusy, setAutomaticBusy] = useState(false);
 
 	// Audio Preview
 	const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -114,12 +134,13 @@ function StudioContent() {
 		// Fetch metadata
 		const loadMeta = async () => {
 			try {
-				const [sRes, rRes, tRes, bRes, iRes] = await Promise.all([
+				const [sRes, rRes, tRes, bRes, iRes, aRes] = await Promise.all([
 					fetch("/api/surahs"),
 					fetch("/api/reciters"),
 					fetch("/api/templates"),
 					fetch("/api/backgrounds"),
 					fetch("/api/instagram/status"),
+					fetch("/api/automation/status"),
 				]);
 				if (sRes.ok) setSurahs(await sRes.json());
 				if (rRes.ok) {
@@ -142,10 +163,21 @@ function StudioContent() {
 					setInstagramConnected(Boolean(instagram.connected));
 					setInstagramUsername(instagram.username || "");
 				}
+				if (aRes.ok) setAutomaticStatus(await aRes.json());
 			} catch (e) {}
 		};
 		loadMeta();
 	}, [searchParams]);
+
+	useEffect(() => {
+		const timer = setInterval(async () => {
+			try {
+				const response = await fetch("/api/automation/status", { cache: "no-store" });
+				if (response.ok) setAutomaticStatus(await response.json());
+			} catch {}
+		}, 1500);
+		return () => clearInterval(timer);
+	}, []);
 
 	useEffect(() => {
 		if (!selectedReciter?.id) return;
@@ -395,6 +427,25 @@ function StudioContent() {
 			setVerseEnd(selection.verseStart + count - 1);
 		} catch (error: any) {
 			alert(error.message || "تعذر اختيار آيات عشوائية");
+		}
+	};
+
+	const handleAutomaticToggle = async () => {
+		if (!automaticStatus.enabled && !confirm("سيستمر إنشاء الريلز ونشرها على Instagram واحداً بعد الآخر حتى تضغط إيقاف. هل تريد التشغيل؟")) return;
+		setAutomaticBusy(true);
+		try {
+			const response = await fetch(automaticStatus.enabled ? "/api/automation/stop" : "/api/automation/start", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ verseCount: count }),
+			});
+			const status = await response.json();
+			if (!response.ok) throw new Error(status.error || "تعذر تغيير التشغيل التلقائي");
+			setAutomaticStatus(status);
+		} catch (error: any) {
+			alert(error.message || "تعذر تغيير التشغيل التلقائي");
+		} finally {
+			setAutomaticBusy(false);
 		}
 	};
 
@@ -897,6 +948,38 @@ function StudioContent() {
 							</button>
 						</div>
 
+						<div className={`automatic-reels-card ${automaticStatus.enabled ? "is-running" : ""}`}>
+							<div className="automatic-reels-head">
+								<div className="automatic-reels-title">
+									<span className="automatic-reels-orbit" aria-hidden="true"><Repeat2 size={20} /></span>
+									<div>
+										<strong>التشغيل التلقائي المستمر</strong>
+										<span>Instagram فقط • يتكرر إلى أن توقفه</span>
+									</div>
+								</div>
+								<button
+									type="button"
+									className={`btn btn-sm ${automaticStatus.enabled ? "btn-secondary" : "btn-primary"}`}
+									disabled={automaticBusy || (!instagramConnected && !automaticStatus.enabled)}
+									onClick={handleAutomaticToggle}
+								>
+									{automaticStatus.enabled ? <Square size={15} /> : <Play size={16} />}
+									<span>{automaticBusy ? "لحظة..." : automaticStatus.enabled ? "إيقاف" : "تشغيل تلقائي"}</span>
+								</button>
+							</div>
+							<p>كل دورة تختار قارئاً وآيات وخلفية وقالباً عشوائياً، ثم تنشئ الريل وتنشره على Instagram وتبدأ التالي.</p>
+							{!instagramConnected && <a className="automatic-reels-link" href="/settings">اربط حساب Instagram أولاً من الإعدادات</a>}
+							<div className="automatic-reels-status" aria-live="polite">
+								<span className={`automatic-reels-dot ${automaticStatus.enabled ? "is-live" : ""}`} />
+								<div>
+									<strong>{automaticStatus.message}</strong>
+									{automaticStatus.currentSummary && <small>{automaticStatus.currentSummary}</small>}
+									{automaticStatus.lastError && <small className="automatic-reels-error">{automaticStatus.lastError}</small>}
+								</div>
+								<span className="automatic-reels-count">نُشر {automaticStatus.completedCount}</span>
+							</div>
+						</div>
+
 						<div className={`instagram-publish-option ${publishToInstagram ? "is-enabled" : ""}`}>
 							<div className="instagram-publish-heading">
 								<div><Camera size={20} /><span>النشر المباشر على Instagram</span></div>
@@ -904,7 +987,7 @@ function StudioContent() {
 									<input
 										type="checkbox"
 										checked={publishToInstagram}
-										disabled={!instagramConnected || isRendering}
+										disabled={!instagramConnected || isRendering || automaticStatus.enabled}
 										onChange={(event) => setPublishToInstagram(event.target.checked)}
 									/>
 									<span className="slider"></span>
@@ -948,7 +1031,7 @@ function StudioContent() {
 						<button
 							type="button"
 							className="btn btn-primary btn-lg btn-block"
-							disabled={isRendering}
+							disabled={isRendering || automaticStatus.enabled}
 							onClick={handleStartRender}
 						>
 							<Rocket size={20} />

@@ -476,6 +476,117 @@ a {
 	transition: var(--transition-fast);
 }
 
+.automatic-reels-card {
+	margin-bottom: 16px;
+	padding: 16px;
+	border: 1px solid rgba(212, 175, 55, 0.3);
+	border-radius: var(--radius-lg);
+	background: linear-gradient(135deg, rgba(212, 175, 55, 0.09), rgba(15, 23, 42, 0.7));
+}
+
+.automatic-reels-card.is-running {
+	border-color: rgba(16, 185, 129, 0.58);
+	box-shadow: inset 0 0 28px rgba(16, 185, 129, 0.07);
+}
+
+.automatic-reels-head,
+.automatic-reels-title,
+.automatic-reels-status {
+	display: flex;
+	align-items: center;
+}
+
+.automatic-reels-head {
+	justify-content: space-between;
+	gap: 14px;
+}
+
+.automatic-reels-title {
+	gap: 11px;
+}
+
+.automatic-reels-title > div,
+.automatic-reels-status > div {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.automatic-reels-title strong,
+.automatic-reels-status strong {
+	color: #fff;
+}
+
+.automatic-reels-title span,
+.automatic-reels-card > p,
+.automatic-reels-status small {
+	color: var(--text-muted);
+	font-size: 0.82rem;
+}
+
+.automatic-reels-card > p {
+	margin: 13px 0;
+	line-height: 1.8;
+}
+
+.automatic-reels-orbit {
+	width: 40px;
+	height: 40px;
+	display: grid;
+	place-items: center;
+	border-radius: 50%;
+	color: var(--gold-light);
+	background: rgba(212, 175, 55, 0.13);
+}
+
+.is-running .automatic-reels-orbit {
+	color: var(--emerald);
+	animation: auto-reel-spin 4s linear infinite;
+}
+
+.automatic-reels-status {
+	gap: 10px;
+	padding: 11px 12px;
+	border-radius: var(--radius-md);
+	background: var(--bg-input);
+}
+
+.automatic-reels-status > div {
+	flex: 1;
+}
+
+.automatic-reels-dot {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: var(--text-dim);
+}
+
+.automatic-reels-dot.is-live {
+	background: var(--emerald);
+	box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.12);
+}
+
+.automatic-reels-count {
+	white-space: nowrap;
+	color: var(--gold-light);
+	font-size: 0.78rem;
+	font-weight: 700;
+}
+
+.automatic-reels-link,
+.automatic-reels-error {
+	color: #fca5a5 !important;
+}
+
+@keyframes auto-reel-spin {
+	to { transform: rotate(-360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.is-running .automatic-reels-orbit { animation: none; }
+}
+
 .instagram-publish-option.is-enabled {
 	background: rgba(214, 41, 118, 0.07);
 	border-color: rgba(214, 41, 118, 0.3);
@@ -893,6 +1004,20 @@ input:checked + .slider:before {
 }
 
 @media (max-width: 640px) {
+	.automatic-reels-head,
+	.automatic-reels-status {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.automatic-reels-head > .btn {
+		width: 100%;
+	}
+
+	.automatic-reels-count {
+		white-space: normal;
+	}
+
 	.main-content {
 		margin-right: 0;
 		padding-bottom: 74px;

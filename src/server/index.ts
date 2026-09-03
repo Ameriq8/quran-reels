@@ -5,7 +5,7 @@ import { join, resolve, extname } from "path";
 import { QuranApi } from "../api/quran";
 import type { IChapter } from "../api/types";
 import { ReciterRegistry } from "../providers/ReciterRegistry";
-import { RenderQueue, type IRenderJobOptions } from "../queue/RenderQueue";
+import { RenderQueue, type IRenderJob, type IRenderJobOptions } from "../queue/RenderQueue";
 import { TEMPLATES } from "../renderer/video";
 import { StorageManager } from "../utils/storage";
 import { resolveWithin } from "../utils/path";
@@ -64,7 +64,7 @@ function instagramJson(req: Request, data: unknown, init?: ResponseInit) {
 
 export function pickRandomAyah(
 	chapters: Pick<IChapter, "id" | "verses_count">[],
-	random: () => number = Math.random,
+	random: () => number = () => crypto.getRandomValues(new Uint32Array(1))[0] / 0x100000000,
 	verseCount: number = 1
 ) {
 	const totalStarts = chapters.reduce((sum, chapter) => sum + Math.max(0, chapter.verses_count - verseCount + 1), 0);
@@ -82,6 +82,56 @@ export function pickRandomAyah(
 	throw new Error("No Quran chapters available");
 }
 
+export function buildAutomaticRenderOptions(
+	chapters: Pick<IChapter, "id" | "verses_count">[],
+	reciterIds: string[],
+	templateIds: string[],
+	backgrounds: string[],
+	verseCount: number,
+	random: () => number = () => crypto.getRandomValues(new Uint32Array(1))[0] / 0x100000000
+): IRenderJobOptions {
+	if (!reciterIds.length || !templateIds.length) throw new Error("Automatic reels need reciters and templates");
+	const pick = <T>(items: T[]) => items[Math.floor(random() * items.length)];
+	const ayahs = pickRandomAyah(chapters, random, verseCount);
+	return {
+		...ayahs,
+		reciterId: pick(reciterIds),
+		templateId: pick(templateIds),
+		background: backgrounds.length ? pick(backgrounds) : undefined,
+		backgroundStartSeconds: 0,
+		syncMode: "auto",
+		showTranslation: true,
+		showSurahArabic: true,
+		showReciter: true,
+		showBranding: true,
+	};
+}
+
+interface AutomaticReelState {
+	enabled: boolean;
+	stage: "idle" | "selecting" | "rendering" | "publishing" | "stopping" | "failed";
+	verseCount: number;
+	completedCount: number;
+	message: string;
+	currentJobId?: string;
+	currentSummary?: string;
+	lastError?: string;
+	updatedAt: string;
+}
+
+function buildAutomaticCaption(job: IRenderJob) {
+	const firstAyah = job.options.verseStart;
+	const lastAyah = firstAyah + job.options.verseCount - 1;
+	return [
+		"✨ تلاوة خاشعة من كتاب الله",
+		`📖 سورة ${job.surahNameArabic || job.surahNameEnglish || job.options.surah} — الآيات (${firstAyah}-${lastAyah})`,
+		`🎙️ بصوت القارئ: ${job.reciterNameArabic || job.options.reciterId}`,
+		"🎧 استمع بقلبك وشارك الأجر",
+		"",
+		"#القرآن #قرآن #تلاوة #اسلام #quran #quranrecitation #reels #Khair_qur",
+	].join("\n");
+}
+
 export function startServer(port: number = 3000) {
 	const quranApi = new QuranApi();
 	const reciterRegistry = new ReciterRegistry();
@@ -89,6 +139,126 @@ export function startServer(port: number = 3000) {
 	const storageManager = new StorageManager();
 	const instagramManager = new InstagramManager();
 	startInstagramCallbackServer(instagramManager);
+	const automaticStateFile = resolve("cache", "automatic-reels.json");
+	let automaticState: AutomaticReelState = {
+		enabled: false,
+		stage: "idle",
+		verseCount: 5,
+		completedCount: 0,
+		message: "التشغيل التلقائي متوقف",
+		updatedAt: new Date().toISOString(),
+	};
+	let automaticLoop: Promise<void> | null = null;
+
+	const saveAutomaticState = async () => {
+		automaticState.updatedAt = new Date().toISOString();
+		await fs.mkdir(resolve("cache"), { recursive: true });
+		await fs.writeFile(automaticStateFile, JSON.stringify(automaticState, null, 2), "utf8");
+	};
+
+	const updateAutomaticState = async (changes: Partial<AutomaticReelState>) => {
+		automaticState = { ...automaticState, ...changes };
+		await saveAutomaticState();
+	};
+
+	const runAutomaticLoop = async () => {
+		while (automaticState.enabled) {
+			try {
+				await updateAutomaticState({
+					stage: "selecting",
+					message: "جاري اختيار قارئ وآيات وخلفية وقالب عشوائياً...",
+					currentJobId: undefined,
+					currentSummary: undefined,
+					lastError: undefined,
+				});
+				const [chapters, reciters, files] = await Promise.all([
+					quranApi.getChapters(),
+					reciterRegistry.getAllReciters(false),
+					fs.readdir(resolve("assets")),
+				]);
+				if (!automaticState.enabled) break;
+				const options = buildAutomaticRenderOptions(
+					chapters,
+					reciters.map((reciter) => reciter.id),
+					Object.keys(TEMPLATES),
+					files.filter((file) => /\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(file)),
+					automaticState.verseCount
+				);
+				const reciter = reciters.find((item) => item.id === options.reciterId);
+				const job = renderQueue.addJob(options);
+				await updateAutomaticState({
+					stage: "rendering",
+					currentJobId: job.id,
+					currentSummary: `سورة ${options.surah}، الآيات ${options.verseStart}-${options.verseStart + options.verseCount - 1}، ${reciter?.nameArabic || options.reciterId}`,
+					message: "جاري إنشاء الريل العشوائي...",
+				});
+
+				while (job.status === "queued" || job.status === "processing") {
+					await Bun.sleep(1000);
+				}
+				if (job.status !== "completed") {
+					throw new Error(job.error || "فشل إنشاء الريل العشوائي");
+				}
+				if (!automaticState.enabled) break;
+				const videoPath = job.outputFileName ? resolveWithin("output", job.outputFileName) : null;
+				if (!videoPath || !existsSync(videoPath)) throw new Error("ملف الريل الناتج غير موجود");
+				await updateAutomaticState({ stage: "publishing", message: "اكتمل الفيديو؛ جاري نشره على Instagram..." });
+				try {
+					await instagramManager.publish(job.id, videoPath, buildAutomaticCaption(job));
+				} catch (error: any) {
+					await updateAutomaticState({
+						enabled: false,
+						stage: "failed",
+						lastError: error.message || "فشل النشر على Instagram",
+						message: "توقف التشغيل التلقائي لأن النشر على Instagram فشل",
+					});
+					break;
+				}
+				await updateAutomaticState({
+					completedCount: automaticState.completedCount + 1,
+					message: "تم النشر على Instagram؛ جاري بدء ريل جديد...",
+				});
+				await Bun.sleep(1500);
+			} catch (error: any) {
+				if (!automaticState.enabled) break;
+				await updateAutomaticState({
+					stage: "failed",
+					lastError: error.message || "فشلت دورة التشغيل التلقائي",
+					message: "تعذرت الدورة الحالية؛ ستتم إعادة المحاولة بعد 15 ثانية...",
+				});
+				for (let second = 0; second < 15 && automaticState.enabled; second++) await Bun.sleep(1000);
+			}
+		}
+		if (automaticState.stage !== "failed" || !automaticState.lastError) {
+			await updateAutomaticState({ stage: "idle", message: "تم إيقاف التشغيل التلقائي", currentJobId: undefined });
+		}
+	};
+
+	const ensureAutomaticLoop = () => {
+		if (automaticLoop) return;
+		automaticLoop = runAutomaticLoop().finally(() => {
+			automaticLoop = null;
+			if (automaticState.enabled) ensureAutomaticLoop();
+		});
+	};
+
+	const automaticStateReady = (async () => {
+		try {
+			if (existsSync(automaticStateFile)) {
+				automaticState = { ...automaticState, ...JSON.parse(await fs.readFile(automaticStateFile, "utf8")) };
+				if (automaticState.enabled) {
+					automaticState.message = "جاري استئناف التشغيل التلقائي...";
+					ensureAutomaticLoop();
+				} else {
+					automaticState.stage = "idle";
+					automaticState.message = "التشغيل التلقائي متوقف";
+					automaticState.currentJobId = undefined;
+				}
+			}
+		} catch (error) {
+			console.warn("Could not restore automatic reel state:", error);
+		}
+	})();
 
 	const mimeTypes: Record<string, string> = {
 		".html": "text/html; charset=utf-8",
@@ -131,6 +301,44 @@ export function startServer(port: number = 3000) {
 
 			try {
 				// ==================== REST API ROUTES ====================
+
+				if (pathname === "/api/automation/status" && method === "GET") {
+					await automaticStateReady;
+					return Response.json(automaticState);
+				}
+
+				if (pathname === "/api/automation/start" && method === "POST") {
+					await automaticStateReady;
+					if (!isTrustedLocalMutation(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
+					if (!(await instagramManager.getStatus()).connected) {
+						return instagramJson(req, { error: "اربط حساب Instagram أولاً" }, { status: 400 });
+					}
+					const body = await req.json();
+					const verseCount = Number(body.verseCount);
+					if (!Number.isInteger(verseCount) || verseCount < 1 || verseCount > 10) {
+						return instagramJson(req, { error: "عدد الآيات للتشغيل التلقائي يجب أن يكون بين 1 و10" }, { status: 400 });
+					}
+					await updateAutomaticState({
+						enabled: true,
+						stage: "selecting",
+						verseCount,
+						lastError: undefined,
+						message: "تم تشغيل الإنشاء والنشر التلقائي على Instagram",
+					});
+					ensureAutomaticLoop();
+					return instagramJson(req, automaticState);
+				}
+
+				if (pathname === "/api/automation/stop" && method === "POST") {
+					await automaticStateReady;
+					if (!isTrustedLocalMutation(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
+					await updateAutomaticState({
+						enabled: false,
+						stage: automaticLoop ? "stopping" : "idle",
+						message: automaticLoop ? "سيتم الإيقاف بعد انتهاء العملية الحالية" : "التشغيل التلقائي متوقف",
+					});
+					return instagramJson(req, automaticState);
+				}
 
 				if (pathname === "/api/instagram/status" && method === "GET") {
 					return Response.json(await instagramManager.getStatus());

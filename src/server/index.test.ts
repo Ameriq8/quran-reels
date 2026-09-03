@@ -3,7 +3,7 @@ import { resolve } from "path";
 import { ReciterRegistry } from "../providers/ReciterRegistry";
 import { getSurahAudioWindow } from "../queue/RenderQueue";
 import { resolveWithin } from "../utils/path";
-import { pickRandomAyah } from "./index";
+import { buildAutomaticRenderOptions, pickRandomAyah } from "./index";
 
 // Regression checks for issues found during the local QA pass on 2026-09-03.
 describe("server regressions", () => {
@@ -27,6 +27,28 @@ describe("server regressions", () => {
 	test("keeps the requested verse count inside a random surah", () => {
 		const chapters = [{ id: 1, verses_count: 7 }, { id: 2, verses_count: 10 }];
 		expect(pickRandomAyah(chapters, () => 0.999, 5)).toEqual({ surah: 2, verseStart: 6, verseCount: 5 });
+	});
+
+	test("builds every automatic reel from fresh random choices", () => {
+		const values = [0.999, 0.5, 0, 0.75];
+		const options = buildAutomaticRenderOptions(
+			[{ id: 1, verses_count: 7 }, { id: 2, verses_count: 10 }],
+			["reader-a", "reader-b"],
+			["template-a", "template-b"],
+			["background-a.jpg", "background-b.mp4"],
+			5,
+			() => values.shift() ?? 0
+		);
+
+		expect(options).toMatchObject({
+			surah: 2,
+			verseStart: 6,
+			verseCount: 5,
+			reciterId: "reader-b",
+			templateId: "template-a",
+			background: "background-b.mp4",
+			showTranslation: true,
+		});
 	});
 
 	test("crops selected ayahs from a surah-level recording", () => {
