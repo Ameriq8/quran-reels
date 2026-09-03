@@ -8,6 +8,15 @@ import type { TimedQuranSegment } from "../sync/types";
 import { resolveWithin } from "../utils/path";
 
 const execAsync = promisify(exec);
+const MEDIA_FILE = /\.(png|jpe?g|webp|mp4|webm|mov)$/i;
+const VIDEO_FILE = /\.(mp4|webm|mov)$/i;
+
+export function getBackgroundCandidates(rootFiles: string[], videoFiles: string[], configuredBg: string = "auto") {
+	const nestedVideos = videoFiles.filter((file) => VIDEO_FILE.test(file)).map((file) => `videos/${file}`);
+	if (configuredBg === "video-auto") return nestedVideos;
+	if (configuredBg === "auto") return [...rootFiles.filter((file) => MEDIA_FILE.test(file)), ...nestedVideos];
+	return [configuredBg];
+}
 
 export interface IVerseRenderData {
 	verse: IVerse;
@@ -143,22 +152,22 @@ export class VideoRenderer {
 	 */
 	async getBackground(configuredBg?: string): Promise<string> {
 		const assetsDir = resolve("assets");
-		if (configuredBg && configuredBg !== "auto") {
+		if (configuredBg && configuredBg !== "auto" && configuredBg !== "video-auto") {
 			const directPath = resolveWithin(assetsDir, configuredBg);
 			if (directPath && existsSync(directPath)) return directPath;
 		}
 
-		const files = await fs.readdir(assetsDir);
-		const imageFiles = files.filter((f) =>
-			/\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(f)
-		);
+		const [files, videoFiles] = await Promise.all([
+			fs.readdir(assetsDir),
+			fs.readdir(join(assetsDir, "videos")).catch(() => []),
+		]);
+		const candidates = getBackgroundCandidates(files, videoFiles, configuredBg);
 
-		if (imageFiles.length === 0) {
-			throw new Error("No background images found in assets/ directory!");
+		if (candidates.length === 0) {
+			throw new Error(configuredBg === "video-auto" ? "لا توجد فيديوهات في assets/videos" : "لا توجد خلفيات في assets");
 		}
 
-		const randomImg = imageFiles[Math.floor(Math.random() * imageFiles.length)];
-		return join(assetsDir, randomImg);
+		return join(assetsDir, candidates[Math.floor(Math.random() * candidates.length)]);
 	}
 
 	/**
@@ -276,6 +285,8 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: HeaderTitle,${template.arabicFont},56,${template.primaryColor},&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,3,2,8,40,40,210,1
 Style: ReciterTag,${template.arabicFont},38,&H00E0E0E0,&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,3,2,8,40,40,285,1
 Style: ArabicVerse,${template.arabicFont},${arabicFontSize},${template.primaryColor},&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,4,3,5,60,60,100,1
+Style: AyahBadgeFrame,${template.arabicFont},96,${template.accentColor},&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
+Style: AyahBadgeNumber,${template.arabicFont},26,&H00000000,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
 Style: TranslationText,${template.translationFont},${transFontSize},&H00F0F0F0,&H000000FF,${template.outlineColor},${template.shadowColor},0,0,0,0,100,100,0,0,1,3,2,2,70,70,280,1
 Style: BrandingTag,${template.translationFont},36,&H00F0F0F0,&H000000FF,${template.outlineColor},${template.shadowColor},-1,0,0,0,100,100,0,0,1,2,2,2,40,40,130,1
 
@@ -297,6 +308,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 			assContent += `Dialogue: 0,${headerStartTime},${headerEndTime},BrandingTag,,0,0,0,,{\\fade(300,300)}{\\fnSegoe UI Emoji\\c&H00D4AF37&}📸 {\\fn${template.translationFont}\\c&H00E0E0E0&}@Khair_qur\n`;
 		}
 
+		const appendAyahBadge = (start: string, end: string, ayahNumber: number) => {
+			assContent += `Dialogue: 2,${start},${end},AyahBadgeFrame,,0,0,0,,{\\pos(540,1120)\\fade(150,150)}۝\n`;
+			assContent += `Dialogue: 3,${start},${end},AyahBadgeNumber,,0,0,0,,{\\pos(540,1120)\\fade(150,150)}${this.toArabicNumber(ayahNumber)}\n`;
+		};
+
 		// Phrase & Verse events
 		for (const item of verseData) {
 			if (item.segments && item.segments.length > 0) {
@@ -304,10 +320,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 				for (const seg of item.segments) {
 					const startStr = this.formatAssTime(seg.startTime);
 					const endStr = this.formatAssTime(seg.endTime);
-					const ayahMarker = seg.isLastSegment ? ` ۝${this.toArabicNumber(seg.ayahNumber)}` : "";
-					const wrappedArabic = this.wrapArabicText(`${seg.arabicText}${ayahMarker}`, 32);
+					const wrappedArabic = this.wrapArabicText(seg.arabicText, 32);
 
 					assContent += `Dialogue: 1,${startStr},${endStr},ArabicVerse,,0,0,0,,{\\fade(150,150)}${wrappedArabic}\n`;
+					if (seg.isLastSegment) appendAyahBadge(startStr, endStr, seg.ayahNumber);
 
 					if (options.showTranslation !== false && seg.translationText) {
 						const wrappedTrans = this.wrapEnglishText(seg.translationText, 34);
@@ -318,9 +334,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 				// Whole Ayah fallback
 				const startStr = this.formatAssTime(item.startTime);
 				const endStr = this.formatAssTime(item.endTime);
-				const wrappedArabic = this.wrapArabicText(`${item.verse.text_uthmani} ۝${this.toArabicNumber(item.verse.verse_number)}`, 32);
+				const wrappedArabic = this.wrapArabicText(item.verse.text_uthmani, 32);
 
 				assContent += `Dialogue: 1,${startStr},${endStr},ArabicVerse,,0,0,0,,{\\fade(200,200)}${wrappedArabic}\n`;
+				appendAyahBadge(startStr, endStr, item.verse.verse_number);
 
 				if (options.showTranslation !== false && item.verse.translations?.[0]?.text) {
 					const wrappedTrans = this.wrapEnglishText(

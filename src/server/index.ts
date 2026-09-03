@@ -6,7 +6,7 @@ import { QuranApi } from "../api/quran";
 import type { IChapter } from "../api/types";
 import { ReciterRegistry } from "../providers/ReciterRegistry";
 import { RenderQueue, type IRenderJob, type IRenderJobOptions } from "../queue/RenderQueue";
-import { TEMPLATES } from "../renderer/video";
+import { getBackgroundCandidates, TEMPLATES } from "../renderer/video";
 import { StorageManager } from "../utils/storage";
 import { resolveWithin } from "../utils/path";
 import { InstagramManager } from "../integrations/instagram";
@@ -173,18 +173,22 @@ export function startServer(port: number = 3000) {
 					currentSummary: undefined,
 					lastError: undefined,
 				});
-				const [chapters, reciters, files] = await Promise.all([
+				const [chapters, reciters, files, videoFiles] = await Promise.all([
 					quranApi.getChapters(),
 					reciterRegistry.getAllReciters(false),
 					fs.readdir(resolve("assets")),
+					fs.readdir(resolve("assets", "videos")).catch(() => []),
 				]);
 				if (!automaticState.enabled) break;
-				const backgroundFiles = files.filter((file) => /\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(file));
+				const backgroundFiles = getBackgroundCandidates(files, videoFiles, automaticState.background);
+				if (!backgroundFiles.length) {
+					throw new Error(automaticState.background === "video-auto" ? "لا توجد فيديوهات في مجلد assets/videos" : "لا توجد خلفيات متاحة");
+				}
 				const options = buildAutomaticRenderOptions(
 					chapters,
 					reciters.map((reciter) => reciter.id),
 					Object.keys(TEMPLATES),
-					automaticState.background === "auto" ? backgroundFiles : [automaticState.background],
+					backgroundFiles,
 					automaticState.verseCount
 				);
 				const reciter = reciters.find((item) => item.id === options.reciterId);
@@ -284,6 +288,7 @@ export function startServer(port: number = 3000) {
 	return serve({
 		port,
 		hostname: "127.0.0.1",
+		maxRequestBodySize: 20 * 1024 ** 3,
 		async fetch(req) {
 			const url = new URL(req.url);
 			const pathname = url.pathname;
@@ -322,8 +327,9 @@ export function startServer(port: number = 3000) {
 						return instagramJson(req, { error: "عدد الآيات للتشغيل التلقائي يجب أن يكون بين 1 و10" }, { status: 400 });
 					}
 					const background = typeof body.background === "string" ? body.background : "auto";
-					const backgroundPath = background === "auto" ? null : resolveWithin("assets", background);
-					if (background !== "auto" && (!backgroundPath || !existsSync(backgroundPath) || !/\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(background))) {
+					const automaticBackground = background === "auto" || background === "video-auto";
+					const backgroundPath = automaticBackground ? null : resolveWithin("assets", background);
+					if (!automaticBackground && (!backgroundPath || !existsSync(backgroundPath) || !/\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(background))) {
 						return instagramJson(req, { error: "الخلفية المختارة غير موجودة" }, { status: 400 });
 					}
 					await updateAutomaticState({
@@ -505,19 +511,21 @@ export function startServer(port: number = 3000) {
 				// 7. Backgrounds Gallery
 				if (pathname === "/api/backgrounds" && method === "GET") {
 					const assetsDir = resolve("assets");
-					const files = await fs.readdir(assetsDir);
-					const backgrounds = files
-						.filter((f) => /\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(f))
+					const [files, videoFiles] = await Promise.all([
+						fs.readdir(assetsDir),
+						fs.readdir(join(assetsDir, "videos")).catch(() => []),
+					]);
+					const backgrounds = getBackgroundCandidates(files, videoFiles)
 						.map((f) => {
 							const isVideo = /\.(mp4|webm|mov)$/i.test(f);
-							let category = "إسلامية ومساجد";
+							let category = isVideo ? "فيديوهات" : "إسلامية ومساجد";
 							if (/child|girl|man|boy|father|person|woman/i.test(f)) category = "أشخاص وقراءة";
 							if (/bench|table|surface|rug|lighted|candle/i.test(f)) category = "مصحف وتفاصيل";
 							if (/nature|sea|sky|mountain|rain/i.test(f)) category = "طبيعة وسماء";
 
 							return {
 								filename: f,
-								url: `/assets/${encodeURIComponent(f)}`,
+								url: `/assets/${f.split("/").map(encodeURIComponent).join("/")}`,
 								isVideo,
 								category,
 								name: f.replace(/\.[^/.]+$/, "").replace(/-/g, " "),
@@ -528,24 +536,34 @@ export function startServer(port: number = 3000) {
 
 				// 8. Upload Background
 				if (pathname === "/api/backgrounds/upload" && method === "POST") {
-					const formData = await req.formData();
-					const file = formData.get("file") as File | null;
-					if (!file) {
-						return Response.json({ error: "No file uploaded" }, { status: 400 });
-					}
-					if (!/\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(file.name)) {
-						return Response.json({ error: "Unsupported background format" }, { status: 415 });
+					if (!isTrustedLocalMutation(req)) return instagramJson(req, { error: "Untrusted request" }, { status: 403 });
+					const requestedName = url.searchParams.get("filename");
+					const formFile = requestedName ? null : (await req.formData()).get("file") as File | null;
+					const originalName = requestedName || formFile?.name || "";
+					if (!originalName) return instagramJson(req, { error: "No file uploaded" }, { status: 400 });
+					if (!/\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(originalName)) {
+						return instagramJson(req, { error: "Unsupported background format" }, { status: 415 });
 					}
 
-					const cleanName = `custom_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-					const targetPath = join(resolve("assets"), cleanName);
-					const arrayBuffer = await file.arrayBuffer();
-					await fs.writeFile(targetPath, Buffer.from(arrayBuffer));
+					const isVideo = /\.(mp4|webm|mov)$/i.test(originalName);
+					const cleanName = `custom_${Date.now()}_${originalName.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+					const relativeName = isVideo ? `videos/${cleanName}` : cleanName;
+					const targetPath = resolveWithin("assets", relativeName);
+					if (!targetPath) return instagramJson(req, { error: "Invalid filename" }, { status: 400 });
+					await fs.mkdir(resolve("assets", "videos"), { recursive: true });
+					try {
+						if (formFile) await Bun.write(targetPath, formFile);
+						else if (req.body) await Bun.write(targetPath, new Response(req.body));
+						else throw new Error("No file uploaded");
+					} catch (error) {
+						await fs.unlink(targetPath).catch(() => {});
+						return instagramJson(req, { error: error instanceof Error ? error.message : "فشل حفظ الملف" }, { status: 500 });
+					}
 
-					return Response.json({
+					return instagramJson(req, {
 						success: true,
-						filename: cleanName,
-						url: `/assets/${encodeURIComponent(cleanName)}`,
+						filename: relativeName,
+						url: `/assets/${relativeName.split("/").map(encodeURIComponent).join("/")}`,
 					});
 				}
 

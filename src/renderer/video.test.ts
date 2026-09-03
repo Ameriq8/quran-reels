@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { TranslationSegmentService } from "../sync/TranslationSegmentService";
-import { VideoRenderer } from "./video";
+import { getBackgroundCandidates, VideoRenderer } from "./video";
 
 function run(command: string[]) {
 	const result = Bun.spawnSync({ cmd: command, stdout: "pipe", stderr: "pipe" });
@@ -34,10 +34,18 @@ test("keeps an English translation and numbered ayah marker in subtitles", async
 		);
 		const subtitles = await fs.readFile(outputPath, "utf8");
 		expect(subtitles).toContain("In the name of Allah");
-		expect(subtitles).toContain("۝١");
+		expect(subtitles).toContain("Style: AyahBadgeFrame");
+		expect(subtitles).toContain("AyahBadgeFrame,,0,0,0,,{\\pos(540,1120)\\fade(150,150)}۝");
+		expect(subtitles).toContain("AyahBadgeNumber,,0,0,0,,{\\pos(540,1120)\\fade(150,150)}١");
+		expect(subtitles).not.toContain("۝١");
 	} finally {
 		await fs.unlink(outputPath).catch(() => {});
 	}
+});
+
+test("video-only automation ignores image backgrounds", () => {
+	expect(getBackgroundCandidates(["mosque.jpg", "legacy.mp4"], ["long.mp4", "notes.txt"], "video-auto"))
+		.toEqual(["videos/long.mp4"]);
 });
 
 test("uses only recitation audio and ends with it", async () => {

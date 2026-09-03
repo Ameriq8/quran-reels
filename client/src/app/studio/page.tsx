@@ -25,6 +25,7 @@ import {
 	Camera,
 	Repeat2,
 	Square,
+	Video,
 } from "lucide-react";
 
 interface AutomaticReelStatus {
@@ -129,7 +130,7 @@ function StudioContent() {
 		if (startParam) setVerseStart(parseInt(startParam, 10));
 		if (countParam) setVerseEnd((parseInt(startParam || "1", 10)) + parseInt(countParam, 10) - 1);
 		setSelectedTemplate(templateParam || savedSettings.defaultTemplate || "mushaf-focus");
-		if (backgroundParam) setSelectedBg(backgroundParam);
+		setSelectedBg(backgroundParam || savedSettings.defaultBackground || "auto");
 
 		// Fetch metadata
 		const loadMeta = async () => {
@@ -189,6 +190,13 @@ function StudioContent() {
 		}
 	}, [selectedReciter?.id]);
 
+	useEffect(() => {
+		try {
+			const settings = JSON.parse(localStorage.getItem("studio_settings") || "{}");
+			localStorage.setItem("studio_settings", JSON.stringify({ ...settings, defaultBackground: selectedBg }));
+		} catch {}
+	}, [selectedBg]);
+
 	useEffect(() => setBackgroundStartSeconds(0), [selectedBg]);
 
 	// Fetch Verses & Segments whenever selection changes
@@ -238,7 +246,11 @@ function StudioContent() {
 		const W = 1080;
 		const H = 1920;
 
-		const bgToUse = selectedBg === "auto" ? (backgrounds[0]?.filename || "Quran-on-Wooden-Surface.png") : selectedBg;
+		const bgToUse = selectedBg === "auto"
+			? (backgrounds[0]?.filename || "Quran-on-Wooden-Surface.png")
+			: selectedBg === "video-auto"
+				? backgrounds.find((background) => background.isVideo)?.filename
+				: selectedBg;
 		const bgObj = backgrounds.find((b) => b.filename === bgToUse);
 		const paintBackground = (source: CanvasImageSource) => {
 			ctx.drawImage(source, 0, 0, W, H);
@@ -390,10 +402,12 @@ function StudioContent() {
 
 		try {
 			setIsUploadingBackground(true);
-			const formData = new FormData();
-			formData.append("file", file);
-			const uploadResponse = await fetch("/api/backgrounds/upload", { method: "POST", body: formData });
-			const upload = await uploadResponse.json();
+			const uploadResponse = await fetch(`http://${location.hostname}:3000/api/backgrounds/upload?filename=${encodeURIComponent(file.name)}`, {
+				method: "POST",
+				headers: { "Content-Type": file.type || "application/octet-stream" },
+				body: file,
+			});
+			const upload = await uploadResponse.json().catch(() => ({ error: `فشل الرفع (${uploadResponse.status})` }));
 			if (!uploadResponse.ok) throw new Error(upload.error || "فشل رفع الفيديو");
 
 			const backgroundsResponse = await fetch("/api/backgrounds");
@@ -431,7 +445,8 @@ function StudioContent() {
 	};
 
 	const handleAutomaticToggle = async () => {
-		if (!automaticStatus.enabled && !confirm(`سيستمر إنشاء الريلز ونشرها على Instagram واحداً بعد الآخر ${selectedBg === "auto" ? "بخلفيات عشوائية" : `من الخلفية المختارة (${selectedBg})`} حتى تضغط إيقاف. هل تريد التشغيل؟`)) return;
+		const backgroundMode = selectedBg === "auto" ? "بخلفيات عشوائية" : selectedBg === "video-auto" ? "بفيديو عشوائي ومقطع عشوائي منه" : `من الخلفية المختارة (${selectedBg})`;
+		if (!automaticStatus.enabled && !confirm(`سيستمر إنشاء الريلز ونشرها على Instagram واحداً بعد الآخر ${backgroundMode} حتى تضغط إيقاف. هل تريد التشغيل؟`)) return;
 		setAutomaticBusy(true);
 		try {
 			const response = await fetch(automaticStatus.enabled ? "/api/automation/stop" : "/api/automation/start", {
@@ -468,7 +483,7 @@ function StudioContent() {
 					reciterId: selectedReciter?.id || "ea-dossari",
 					templateId: selectedTemplate,
 					background: selectedBg,
-					backgroundStartSeconds,
+					backgroundStartSeconds: selectedBg === "video-auto" ? -1 : backgroundStartSeconds,
 					syncMode,
 					showTranslation,
 					showSurahArabic: showSurahHeader,
@@ -753,8 +768,8 @@ function StudioContent() {
 							<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "8px" }}>
 								<label style={{ margin: 0 }}>
 									الخلفية الحالية:{" "}
-									<strong style={{ color: selectedBg === "auto" ? "var(--emerald)" : "var(--gold-light)" }}>
-										{selectedBg === "auto" ? "🎲 تلقائي (اختيار عشوائي عند الإنتاج)" : backgrounds.find((b) => b.filename === selectedBg)?.name || selectedBg}
+									<strong style={{ color: selectedBg === "auto" || selectedBg === "video-auto" ? "var(--emerald)" : "var(--gold-light)" }}>
+										{selectedBg === "auto" ? "🎲 تلقائي (صور وفيديوهات)" : selectedBg === "video-auto" ? "🎬 فيديو عشوائي فقط" : backgrounds.find((b) => b.filename === selectedBg)?.name || selectedBg}
 									</strong>
 								</label>
 								<div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -811,6 +826,32 @@ function StudioContent() {
 										عشوائي 🎲
 									</span>
 								</div>
+
+								<button
+									type="button"
+									onClick={() => setSelectedBg("video-auto")}
+									aria-pressed={selectedBg === "video-auto"}
+									style={{
+										minWidth: "100px",
+										height: "120px",
+										borderRadius: "10px",
+										background: selectedBg === "video-auto" ? "linear-gradient(135deg, rgba(212, 175, 55, 0.35), rgba(59, 130, 246, 0.25))" : "var(--bg-input)",
+										border: selectedBg === "video-auto" ? "2px solid var(--gold-primary)" : "1px solid var(--border-light)",
+										cursor: "pointer",
+										display: "flex",
+										flexDirection: "column",
+										alignItems: "center",
+										justifyContent: "center",
+										gap: "6px",
+										padding: "8px",
+										color: selectedBg === "video-auto" ? "#fff" : "var(--text-muted)",
+										boxShadow: selectedBg === "video-auto" ? "0 0 15px rgba(212, 175, 55, 0.3)" : "none",
+									}}
+								>
+									<Video size={24} color={selectedBg === "video-auto" ? "var(--gold-light)" : "var(--text-muted)"} />
+									<strong style={{ fontSize: "0.76rem", lineHeight: 1.25 }}>فيديو عشوائي فقط</strong>
+									<span style={{ fontSize: "0.65rem", color: "var(--emerald)" }}>مقطع عشوائي</span>
+								</button>
 
 								{/* All Backgrounds */}
 								{backgrounds.map((bg) => (

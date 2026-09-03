@@ -32,19 +32,18 @@ export default function BackgroundsPage() {
 
 		try {
 			setIsUploading(true);
-			const formData = new FormData();
-			formData.append("file", files[0]);
-
-			const res = await fetch("/api/backgrounds/upload", {
+			const file = files[0];
+			const res = await fetch(`http://${location.hostname}:3000/api/backgrounds/upload?filename=${encodeURIComponent(file.name)}`, {
 				method: "POST",
-				body: formData,
+				headers: { "Content-Type": file.type || "application/octet-stream" },
+				body: file,
 			});
 
-			if (res.ok) {
-				fetchBackgrounds();
-			}
-		} catch (err) {
-			console.error("Upload error:", err);
+			const result = await res.json().catch(() => ({ error: `فشل الرفع (${res.status})` }));
+			if (!res.ok) throw new Error(result.error || "فشل الرفع");
+			await fetchBackgrounds();
+		} catch (err: any) {
+			alert(err.message || "فشل الرفع");
 		} finally {
 			setIsUploading(false);
 		}
@@ -80,6 +79,7 @@ export default function BackgroundsPage() {
 							{ id: "مصحف وتفاصيل", label: "📖 مصحف وتفاصيل" },
 							{ id: "أشخاص وقراءة", label: "👤 أشخاص وقراءة" },
 							{ id: "طبيعة وسماء", label: "🌿 طبيعة وسماء" },
+							{ id: "فيديوهات", label: "🎬 فيديوهات" },
 						].map((tab) => (
 							<button
 								key={tab.id}
