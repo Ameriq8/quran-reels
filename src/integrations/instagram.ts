@@ -138,17 +138,7 @@ async function exposeVideo(videoPath: string) {
 			if (!baseUrl) await Bun.sleep(250);
 		}
 		if (!baseUrl) throw new Error("تأخر تجهيز رابط الفيديو المؤقت؛ حاول مرة ثانية");
-		const url = `${baseUrl}${route}`;
-		for (let attempt = 0; attempt < 120; attempt++) {
-			try {
-				if ((await fetch(url, { method: "HEAD" })).ok) return {
-					url,
-					close,
-				};
-			} catch {}
-			await Bun.sleep(500);
-		}
-		throw new Error("تعذر الوصول إلى رابط الفيديو المؤقت؛ حاول مرة ثانية");
+		return { url: `${baseUrl}${route}`, close };
 	} catch (error) {
 		await close();
 		throw error;
