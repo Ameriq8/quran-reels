@@ -226,12 +226,14 @@ export function startServer(port: number = 3000) {
 					await instagramManager.publish(job.id, videoPath, buildAutomaticCaption(job));
 				} catch (error: any) {
 					await updateAutomaticState({
-						enabled: false,
 						stage: "failed",
 						lastError: error.message || "فشل النشر على Instagram",
-						message: "توقف التشغيل التلقائي لأن النشر على Instagram فشل",
+						currentJobId: undefined,
+						currentSummary: undefined,
+						message: "فشل نشر الدورة؛ أُلغي الريل وسيتم اختيار قارئ وآيات جديدة بعد 3 ثوانٍ...",
 					});
-					break;
+					for (let second = 0; second < 3 && automaticState.enabled; second++) await Bun.sleep(1000);
+					continue;
 				}
 				await updateAutomaticState({
 					completedCount: automaticState.completedCount + 1,
@@ -243,9 +245,11 @@ export function startServer(port: number = 3000) {
 				await updateAutomaticState({
 					stage: "failed",
 					lastError: error.message || "فشلت دورة التشغيل التلقائي",
-					message: "تعذرت الدورة الحالية؛ ستتم إعادة المحاولة بعد 15 ثانية...",
+					currentJobId: undefined,
+					currentSummary: undefined,
+					message: "تعذرت الدورة؛ أُلغي الاختيار وسيتم تبديله بعد ثانيتين...",
 				});
-				for (let second = 0; second < 15 && automaticState.enabled; second++) await Bun.sleep(1000);
+				for (let second = 0; second < 2 && automaticState.enabled; second++) await Bun.sleep(1000);
 			}
 		}
 		if (automaticState.stage !== "failed" || !automaticState.lastError) {
