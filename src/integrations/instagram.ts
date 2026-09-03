@@ -89,6 +89,11 @@ async function ensureCloudflared() {
 	return executable;
 }
 
+export function getReadyTunnelBaseUrl(log: string) {
+	const url = log.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i)?.[0] || "";
+	return url && log.includes("Registered tunnel connection") ? url : "";
+}
+
 async function exposeVideo(videoPath: string) {
 	const cloudflared = await ensureCloudflared();
 	const token = crypto.randomUUID().replaceAll("-", "");
@@ -128,14 +133,13 @@ async function exposeVideo(videoPath: string) {
 		for (let attempt = 0; attempt < 120 && !baseUrl; attempt++) {
 			if (tunnel.exitCode !== null) throw new Error("تعذر فتح قناة الرفع المؤقتة إلى Instagram");
 			if (existsSync(logPath)) {
-				const match = (await fs.readFile(logPath, "utf8")).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
-				baseUrl = match?.[0] || "";
+				baseUrl = getReadyTunnelBaseUrl(await fs.readFile(logPath, "utf8"));
 			}
 			if (!baseUrl) await Bun.sleep(250);
 		}
 		if (!baseUrl) throw new Error("تأخر تجهيز رابط الفيديو المؤقت؛ حاول مرة ثانية");
 		const url = `${baseUrl}${route}`;
-		for (let attempt = 0; attempt < 20; attempt++) {
+		for (let attempt = 0; attempt < 120; attempt++) {
 			try {
 				if ((await fetch(url, { method: "HEAD" })).ok) return {
 					url,

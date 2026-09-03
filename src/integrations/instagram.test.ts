@@ -2,12 +2,18 @@ import { expect, test } from "bun:test";
 import fs from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { buildInstagramAuthorizationUrl, InstagramManager, INSTAGRAM_CALLBACK_URL, publishInstagramReel } from "./instagram";
+import { buildInstagramAuthorizationUrl, getReadyTunnelBaseUrl, InstagramManager, INSTAGRAM_CALLBACK_URL, publishInstagramReel } from "./instagram";
 
 test("uses the secure local Instagram callback", () => {
 	const url = new URL(buildInstagramAuthorizationUrl("12345678", "state-1"));
 	expect(INSTAGRAM_CALLBACK_URL).toBe("https://localhost:3443/api/instagram/callback");
 	expect(url.searchParams.get("redirect_uri")).toBe(INSTAGRAM_CALLBACK_URL);
+});
+
+test("waits for the Cloudflare tunnel connection before publishing its URL", () => {
+	const url = "https://temporary-video.trycloudflare.com";
+	expect(getReadyTunnelBaseUrl(`Your quick Tunnel has been created: ${url}`)).toBe("");
+	expect(getReadyTunnelBaseUrl(`${url}\nRegistered tunnel connection`)).toBe(url);
 });
 
 test("publishes a local MP4 through a temporary public URL", async () => {
